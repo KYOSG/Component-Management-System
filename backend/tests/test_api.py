@@ -134,6 +134,85 @@ def test_import_samples_match_exact_and_substitute(client):
         assert other.get(f"/api/projects/{quote_body['id']}").status_code == 404
 
 
+def test_initial_admin_and_user_removal(client):
+    from sqlalchemy import func, select
+
+    from app.bootstrap import prepare_database
+    from app.database import SessionLocal
+    from app.models import Box, Item, Project, User
+
+    admin = client.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+    assert admin.status_code == 200, admin.text
+    assert admin.json()["is_admin"] is True
+    admin_id = admin.json()["id"]
+    assert client.put(
+        f"/api/users/{admin_id}",
+        json={"email": "admin", "password": "", "is_admin": False},
+    ).status_code == 400
+    assert client.delete(f"/api/users/{admin_id}").status_code == 400
+
+    created = client.post("/api/users", json={"email": "staff@example.com", "password": "secret1", "is_admin": False})
+    assert created.status_code == 200, created.text
+    staff_id = created.json()["id"]
+
+    client.post("/api/auth/login", json={"email": "staff@example.com", "password": "secret1"})
+    assert client.get("/api/auth/me").json()["is_admin"] is False
+    assert client.get("/api/users").status_code == 403
+    box = client.post("/api/boxes", json={"name": "员工盒", "rows": 2, "cols": 2, "remark": ""})
+    assert box.status_code == 200, box.text
+    item = client.post(
+        "/api/items",
+        json={"mpn": "R9", "quantity": 3, "box_id": box.json()["id"], "row": 1, "col": 1},
+    )
+    assert item.status_code == 200, item.text
+    imported = client.post(
+        "/api/projects/import",
+        files={"file": (EDA_FILE.name, EDA_FILE.read_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert imported.status_code == 200, imported.text
+
+    db = SessionLocal()
+    try:
+        assert db.get(Item, item.json()["id"]).user_id == staff_id
+        assert db.get(Box, box.json()["id"]).user_id == staff_id
+        assert db.get(Project, imported.json()["id"]).user_id == staff_id
+    finally:
+        db.close()
+
+    client.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+    removed = client.delete(f"/api/users/{staff_id}")
+    assert removed.status_code == 200, removed.text
+    db = SessionLocal()
+    try:
+        assert db.get(User, staff_id) is None
+        assert db.scalar(select(func.count()).select_from(Item).where(Item.user_id == staff_id)) == 0
+        assert db.scalar(select(func.count()).select_from(Box).where(Box.user_id == staff_id)) == 0
+        assert db.scalar(select(func.count()).select_from(Project).where(Project.user_id == staff_id)) == 0
+        prepare_database()
+        assert db.scalar(select(func.count()).select_from(User).where(User.email == "admin")) == 1
+    finally:
+        db.close()
+    assert client.post("/api/auth/login", json={"email": "staff@example.com", "password": "secret1"}).status_code == 400
+
+
+def test_admin_can_update_account(client):
+    client.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+    created = client.post("/api/users", json={"email": "edit@example.com", "password": "secret1", "is_admin": False})
+    assert created.status_code == 200, created.text
+    user_id = created.json()["id"]
+    updated = client.put(
+        f"/api/users/{user_id}",
+        json={"email": "edited@example.com", "password": "secret2", "is_admin": False},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["email"] == "edited@example.com"
+    listed = client.get("/api/users")
+    assert any(row["email"] == "edited@example.com" for row in listed.json())
+    client.post("/api/auth/logout")
+    assert client.post("/api/auth/login", json={"email": "edited@example.com", "password": "secret2"}).status_code == 200
+    assert client.post("/api/auth/login", json={"email": "edit@example.com", "password": "secret1"}).status_code == 400
+
+
 def test_unknown_file_does_not_create_project(client):
     register(client, "badfile@example.com")
     workbook = openpyxl.Workbook()

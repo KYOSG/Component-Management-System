@@ -17,7 +17,14 @@ class AuthIn(BaseModel):
 class UserOut(ORMModel):
     id: int
     email: str
+    is_admin: bool
     created_at: datetime
+
+
+class UserWrite(BaseModel):
+    email: str
+    password: str = ""
+    is_admin: bool = False
 
 
 class BoxIn(BaseModel):

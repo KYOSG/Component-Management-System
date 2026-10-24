@@ -8,6 +8,7 @@ import Items from '../views/Items.vue'
 import MapView from '../views/Map.vue'
 import Projects from '../views/Projects.vue'
 import ProjectDetail from '../views/ProjectDetail.vue'
+import Users from '../views/Users.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,6 +24,7 @@ const router = createRouter({
         { path: 'map', component: MapView, meta: { title: '物料盒地图' } },
         { path: 'projects', component: Projects, meta: { title: '项目 BOM' } },
         { path: 'projects/:id', component: ProjectDetail, meta: { title: '匹配结果' } },
+        { path: 'users', component: Users, meta: { title: '账户管理', admin: true } },
       ],
     },
   ],
@@ -31,7 +33,8 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (to.meta.public) return true
   try {
-    await http.get('/auth/me')
+    const { data } = await http.get('/auth/me')
+    if (to.matched.some((record) => record.meta.admin) && !data.is_admin) return '/items'
     return true
   } catch {
     return { path: '/login', query: { redirect: to.fullPath } }

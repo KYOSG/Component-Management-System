@@ -6,9 +6,11 @@ import http from '../api'
 const route = useRoute()
 const router = useRouter()
 const email = ref('')
+const isAdmin = ref(false)
 
 const active = computed(() => {
   if (route.path.startsWith('/projects')) return '/projects'
+  if (route.path.startsWith('/users')) return '/users'
   return route.path
 })
 
@@ -17,6 +19,7 @@ const title = computed(() => route.meta.title || '物品映射')
 onMounted(async () => {
   const { data } = await http.get('/auth/me')
   email.value = data.email
+  isAdmin.value = data.is_admin
 })
 
 async function logout() {
@@ -41,6 +44,10 @@ async function logout() {
         <el-menu-item index="/projects">
           <el-icon><Document /></el-icon>
           <span>项目 BOM</span>
+        </el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/users">
+          <el-icon><User /></el-icon>
+          <span>账户管理</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

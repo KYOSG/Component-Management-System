@@ -195,7 +195,7 @@ onMounted(async () => {
           <button
             v-for="cell in box.cells"
             :key="`${cell.row}-${cell.col}`"
-            class="cell"
+            class="box-cell"
             :class="{ occupied: !!cell.item, dimmed: cell.dimmed, hit: marks(cell.item).length }"
             type="button"
             @click="openCell(box, cell)"

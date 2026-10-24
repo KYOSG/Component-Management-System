@@ -59,7 +59,7 @@ def login(body: AuthIn, response: Response, db: Session = Depends(get_db)) -> Us
     email = body.email.strip().lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="邮箱或密码错误")
+        raise HTTPException(status_code=400, detail="账号或密码错误")
     _set_session(response, user.id)
     return user
 

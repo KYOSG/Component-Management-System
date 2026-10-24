@@ -28,7 +28,7 @@ async function submit() {
       <h1>物品映射</h1>
       <p class="muted">登录后管理物料库、物料盒和项目 BOM。</p>
       <el-form @submit.prevent="submit">
-        <el-form-item label="邮箱">
+        <el-form-item label="账号">
           <el-input v-model="form.email" autocomplete="username" />
         </el-form-item>
         <el-form-item label="密码">

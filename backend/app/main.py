@@ -8,15 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.bootstrap import prepare_database
 from app.config import get_settings
-from app.database import engine
-from app.models import Base
-from app.routers import auth, boxes, items, lcsc, projects
+from app.routers import auth, boxes, items, lcsc, projects, users
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    Base.metadata.create_all(engine)
+    prepare_database()
     yield
 
 
@@ -46,6 +45,7 @@ app.include_router(lcsc.router)
 app.include_router(items.router)
 app.include_router(boxes.router)
 app.include_router(projects.router)
+app.include_router(users.router)
 
 static_dir = get_settings().static_dir
 if static_dir and (Path(static_dir) / "index.html").is_file():
