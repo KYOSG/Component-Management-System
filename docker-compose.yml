@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+      STATIC_DIR: /app/static
+      SECRET_KEY: ${SECRET_KEY:-dev-change-me}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+    volumes:
+      - cms-data:/data
+    restart: unless-stopped
+
+volumes:
+  cms-data:

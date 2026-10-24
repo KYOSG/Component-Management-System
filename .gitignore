@@ -1,0 +1,14 @@
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/
+backend/tests/_test.sqlite
+.env
+.DS_Store
+*.tsbuildinfo
+.pytest_cache/
+*.log
+.idea/
