@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import http from '../api'
-import { cellText, itemPayload } from '../format'
+import { cellText, filledSpecs, itemPayload } from '../format'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
 const route = useRoute()
@@ -23,6 +23,7 @@ const selectedUnboxed = ref(null)
 const drawer = ref(false)
 const editing = ref(null)
 const draft = ref(null)
+const expanded = ref({})
 
 const highlights = computed(() => {
   const output = {}
@@ -38,12 +39,25 @@ const visibleUnboxed = computed(() => {
 })
 
 function gridStyle(box) {
-  return { gridTemplateColumns: `repeat(${box.cols}, minmax(96px, 1fr))` }
+  return { gridTemplateColumns: `repeat(${box.cols}, minmax(128px, 1fr))` }
+}
+
+function occupiedCount(box) {
+  return box.cells.filter((cell) => cell.item).length
+}
+
+function toggleBox(id) {
+  expanded.value = { ...expanded.value, [id]: !expanded.value[id] }
 }
 
 function marks(item) {
   if (!item) return []
   return highlights.value[item.id] || []
+}
+
+function longLcsc(item) {
+  const digits = String(item?.lcsc_code || '').replace(/\D/g, '')
+  return digits.length > 6
 }
 
 async function loadProjects() {
@@ -180,41 +194,80 @@ onMounted(async () => {
     </div>
     <div class="stack">
       <section v-for="box in mapData.boxes" :key="box.id" class="page-card">
-        <div class="box-title">
-          <div>
-            <strong>{{ box.name }}</strong>
-            <span class="muted"> · {{ box.rows }} 行 × {{ box.cols }} 列</span>
-            <div v-if="box.remark" class="muted">{{ box.remark }}</div>
+        <div class="box-title" @click="toggleBox(box.id)">
+          <div class="box-heading">
+            <span class="box-caret" :class="{ open: expanded[box.id] }"></span>
+            <div>
+              <strong>{{ box.name }}</strong>
+              <span class="muted"> · {{ box.rows }} 行 × {{ box.cols }} 列 · {{ occupiedCount(box) }}/{{ box.rows * box.cols }}</span>
+              <div v-if="box.remark" class="muted">{{ box.remark }}</div>
+            </div>
           </div>
-          <div>
+          <div @click.stop>
             <el-button link type="primary" @click="openEditBox(box)">编辑</el-button>
             <el-button link type="danger" @click="removeBox(box)">删除</el-button>
           </div>
         </div>
-        <div class="box-grid" :style="gridStyle(box)">
-          <button
-            v-for="cell in box.cells"
-            :key="`${cell.row}-${cell.col}`"
-            class="box-cell"
-            :class="{ occupied: !!cell.item, dimmed: cell.dimmed, hit: marks(cell.item).length }"
-            type="button"
-            @click="openCell(box, cell)"
-          >
-            <span class="meta">{{ cell.row }}-{{ cell.col }}</span>
-            <template v-if="cell.item && !cell.dimmed">
-              <span class="code">{{ cell.item.lcsc_code || cell.item.mpn || cell.item.name }}</span>
-              <span class="meta">库存 {{ cell.item.quantity }}</span>
-              <span v-if="marks(cell.item).length" class="mark">{{ marks(cell.item).join(' ') }}</span>
-            </template>
-            <span v-else-if="cell.item" class="meta">其他类目</span>
-            <span v-else class="meta">空</span>
-          </button>
-        </div>
-        <div v-if="box.invalid_items.length" style="margin-top: 12px">
-          <div class="muted">坐标不合法，请移出或重新放入：</div>
-          <el-tag v-for="item in box.invalid_items" :key="item.id" style="margin: 6px 6px 0 0">
-            {{ item.lcsc_code || item.mpn || item.name }}
-          </el-tag>
+        <div class="box-collapse" :class="{ open: expanded[box.id] }">
+          <div class="box-collapse-inner">
+            <div class="box-grid" :style="gridStyle(box)" style="margin-top: 12px">
+              <div
+                v-for="cell in box.cells"
+                :key="`${cell.row}-${cell.col}`"
+                class="box-cell"
+                :class="{ occupied: !!cell.item, dimmed: cell.dimmed, hit: marks(cell.item).length }"
+                role="button"
+                tabindex="0"
+                @click="openCell(box, cell)"
+                @keydown.enter.prevent="openCell(box, cell)"
+                @keydown.space.prevent="openCell(box, cell)"
+              >
+                <div class="cell-head">
+                  <span v-if="cell.item && !cell.dimmed" class="cell-type">{{ cell.item.category || '—' }}</span>
+                  <span class="cell-pos">{{ cell.row }}-{{ cell.col }}</span>
+                </div>
+                <div class="cell-main">
+                  <div class="cell-copy">
+                    <div v-if="cell.item && !cell.dimmed" class="cell-body">
+                      <span class="meta">{{ cell.item.footprint || '—' }}</span>
+                      <span class="meta">{{ cell.item.value || '—' }}</span>
+                      <span v-for="field in filledSpecs(cell.item)" :key="field.key" class="meta">{{ field.label }} {{ field.value }}</span>
+                      <span v-if="marks(cell.item).length" class="mark">{{ marks(cell.item).join(' ') }}</span>
+                    </div>
+                    <div v-else class="cell-body">
+                      <span class="meta">{{ cell.item ? '其他类目' : '空' }}</span>
+                    </div>
+                    <div v-if="cell.item" class="cell-foot" :class="{ stacked: longLcsc(cell.item) }">
+                      <span class="code">{{ cell.item.lcsc_code || '—' }}</span>
+                      <span class="stock">库存 {{ cell.item.quantity }}</span>
+                    </div>
+                  </div>
+                  <div v-if="cell.item?.image_url" class="cell-photo" @click.stop>
+                    <el-image
+                      :src="cell.item.image_url"
+                      fit="contain"
+                      lazy
+                      :preview-src-list="[cell.item.image_url]"
+                      preview-teleported
+                      hide-on-click-modal
+                    >
+                      <template #error>
+                        <div class="cell-photo-fallback">
+                          <el-icon><Picture /></el-icon>
+                        </div>
+                      </template>
+                    </el-image>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="box.invalid_items.length" style="margin-top: 12px">
+              <div class="muted">坐标不合法，请移出或重新放入：</div>
+              <el-tag v-for="item in box.invalid_items" :key="item.id" style="margin: 6px 6px 0 0">
+                {{ item.lcsc_code || item.mpn || item.name }}
+              </el-tag>
+            </div>
+          </div>
         </div>
       </section>
       <section class="page-card">
@@ -258,6 +311,7 @@ onMounted(async () => {
           <el-descriptions-item label="封装">{{ activeCell.item.footprint || '—' }}</el-descriptions-item>
           <el-descriptions-item label="类目">{{ activeCell.item.category || '—' }}</el-descriptions-item>
           <el-descriptions-item label="标称值">{{ activeCell.item.value || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-for="field in filledSpecs(activeCell.item)" :key="field.key" :label="field.label">{{ field.value }}</el-descriptions-item>
           <el-descriptions-item label="库存">{{ activeCell.item.quantity }}</el-descriptions-item>
           <el-descriptions-item v-if="marks(activeCell.item).length" label="位号">{{ marks(activeCell.item).join('、') }}</el-descriptions-item>
         </el-descriptions>

@@ -9,6 +9,7 @@ import MapView from '../views/Map.vue'
 import Projects from '../views/Projects.vue'
 import ProjectDetail from '../views/ProjectDetail.vue'
 import Users from '../views/Users.vue'
+import Settings from '../views/Settings.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,6 +26,7 @@ const router = createRouter({
         { path: 'projects', component: Projects, meta: { title: '项目 BOM' } },
         { path: 'projects/:id', component: ProjectDetail, meta: { title: '匹配结果' } },
         { path: 'users', component: Users, meta: { title: '账户管理', admin: true } },
+        { path: 'settings', component: Settings, meta: { title: '系统配置', admin: true } },
       ],
     },
   ],

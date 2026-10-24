@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -7,6 +8,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+def _specs_dict(value) -> dict[str, str]:
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    if not isinstance(value, dict):
+        return {}
+    output: dict[str, str] = {}
+    for key, item in value.items():
+        text = str(item or "").strip()
+        if text:
+            output[str(key)] = text
+    return output
 
 
 class AuthIn(BaseModel):
@@ -52,6 +71,7 @@ class ItemIn(BaseModel):
     category: str = ""
     value: str = ""
     params: str = ""
+    specs: dict[str, str] = Field(default_factory=dict)
     quantity: int = 0
     box_id: int | None = None
     row: int | None = None
@@ -67,6 +87,11 @@ class ItemIn(BaseModel):
             raise ValueError("库存不能为负数")
         return value
 
+    @field_validator("specs", mode="before")
+    @classmethod
+    def specs_as_dict(cls, value):
+        return _specs_dict(value)
+
 
 class ItemOut(BaseModel):
     id: int
@@ -78,6 +103,7 @@ class ItemOut(BaseModel):
     category: str
     value: str
     params: str
+    specs: dict[str, str] = Field(default_factory=dict)
     quantity: int
     box_id: int | None = None
     box_name: str | None = None
@@ -162,9 +188,47 @@ class LineOut(BaseModel):
     matched_at: datetime | None = None
 
 
+class ProjectUpdate(BaseModel):
+    purchase_sets: int
+
+    @field_validator("purchase_sets")
+    @classmethod
+    def purchase_sets_at_least_one(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("采购套数至少为 1")
+        return value
+
+
 class ProjectOut(ProjectBrief):
     ai_enabled: bool
     lines: list[LineOut]
+
+
+class SystemSettingsIn(BaseModel):
+    database_location: str = ""
+    database_name: str = ""
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = ""
+    deepseek_model: str = ""
+
+
+class SystemSettingsOut(BaseModel):
+    database_location: str
+    database_name: str
+    deepseek_api_key: str
+    deepseek_base_url: str
+    deepseek_model: str
+
+
+class AiTestIn(BaseModel):
+    prompt: str = ""
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = ""
+    deepseek_model: str = ""
+
+
+class AiTestOut(BaseModel):
+    output: str
 
 
 class AdoptOut(BaseModel):
@@ -176,6 +240,7 @@ class AdoptOut(BaseModel):
     category: str = ""
     value: str = ""
     params: str = ""
+    specs: dict[str, str] = Field(default_factory=dict)
     datasheet_url: str = ""
     image_url: str = ""
     quantity: int = 0

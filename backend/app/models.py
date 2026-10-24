@@ -14,6 +14,14 @@ class Base(DeclarativeBase):
     pass
 
 
+class SystemConfig(Base):
+    __tablename__ = "system_configs"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -56,6 +64,7 @@ class Item(Base):
     category: Mapped[str] = mapped_column(String(255), default="")
     value: Mapped[str] = mapped_column(String(255), default="")
     params: Mapped[str] = mapped_column(Text, default="")
+    specs: Mapped[str] = mapped_column(Text, default="{}")
     quantity: Mapped[int] = mapped_column(Integer, default=0)
     box_id: Mapped[int | None] = mapped_column(ForeignKey("boxes.id"), nullable=True)
     row: Mapped[int | None] = mapped_column(Integer, nullable=True)

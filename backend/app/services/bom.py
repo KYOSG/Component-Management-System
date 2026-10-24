@@ -198,11 +198,7 @@ def _parse_quote(matrix: list[list[str]], header_index: int, filename: str) -> P
         if not any(row):
             continue
         per_board = _parse_int(_pick(row, columns, "Quantity"))
-        buy_text = _pick(row, columns, "购买数量")
-        if "购买数量" in columns and buy_text != "":
-            required = _parse_int(buy_text)
-        else:
-            required = per_board * purchase_sets
+        required = per_board * purchase_sets
         params = "；".join(
             part
             for part in (_pick(row, columns, "原参数"), _pick(row, columns, "参数"))

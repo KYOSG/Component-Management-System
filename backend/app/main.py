@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.bootstrap import prepare_database
 from app.config import get_settings
-from app.routers import auth, boxes, items, lcsc, projects, users
+from app.routers import auth, boxes, items, lcsc, projects, settings, users
 
 
 @asynccontextmanager
@@ -46,6 +46,7 @@ app.include_router(items.router)
 app.include_router(boxes.router)
 app.include_router(projects.router)
 app.include_router(users.router)
+app.include_router(settings.router)
 
 static_dir = get_settings().static_dir
 if static_dir and (Path(static_dir) / "index.html").is_file():

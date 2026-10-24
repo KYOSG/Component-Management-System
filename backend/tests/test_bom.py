@@ -34,7 +34,7 @@ def test_lcsc_quote_sample():
     line = next(item for item in parsed.lines if item.lcsc_code == "C105580")
     assert line.designators == "R13,R14"
     assert line.quantity_per_board == 2
-    assert line.quantity_required == 100
+    assert line.quantity_required == 4
     assert line.mpn == "RC0603FR-075K1L"
     assert line.brand.startswith("YAGEO")
     assert line.footprint == "0603"

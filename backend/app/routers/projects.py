@@ -7,14 +7,15 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Project, ProjectLine, User
-from app.schemas import AdoptOut, LineOut, ProjectBrief, ProjectOut
+from app.schemas import AdoptOut, LineOut, ProjectBrief, ProjectOut, ProjectUpdate
 from app.services.bom import BomError, parse_upload
 from app.services.lcsc import LcscError, fetch_lcsc
 from app.services.matching import apply_match
+from app.services.system_config import read_settings
+from app.services.specs import specs_from_params
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -28,11 +29,15 @@ def _location(record: dict) -> str:
     return f"{label} · {place}（库存 {record.get('quantity', 0)}）"
 
 
-def line_out(line: ProjectLine) -> LineOut:
-    try:
-        suggestions = json.loads(line.suggestions_json or "{}")
-    except json.JSONDecodeError:
-        suggestions = {}
+def line_out(line: ProjectLine, *, include_match: bool = True) -> LineOut:
+    suggestions: dict = {}
+    if include_match:
+        try:
+            suggestions = json.loads(line.suggestions_json or "{}")
+        except json.JSONDecodeError:
+            suggestions = {}
+        if not isinstance(suggestions, dict):
+            suggestions = {}
     records = suggestions.get("exact_hits") or suggestions.get("candidates") or []
     risks = suggestions.get("risks") or []
     if not isinstance(risks, list):
@@ -52,13 +57,13 @@ def line_out(line: ProjectLine) -> LineOut:
         params=line.params or "",
         product_name=line.product_name or "",
         category=line.category or "",
-        match_status=line.match_status or "",
-        matched_item_id=line.matched_item_id,
+        match_status=(line.match_status or "") if include_match else "",
+        matched_item_id=line.matched_item_id if include_match else None,
         reason=suggestions.get("reason") or "",
-        risks=risks,
+        risks=[risk for risk in risks if isinstance(risk, str)],
         locations=[_location(record) for record in records if isinstance(record, dict)],
         stock=stock,
-        matched_at=line.matched_at,
+        matched_at=line.matched_at if include_match else None,
     )
 
 
@@ -66,6 +71,7 @@ def project_out(db: Session, project: Project) -> ProjectOut:
     lines = db.scalars(
         select(ProjectLine).where(ProjectLine.project_id == project.id).order_by(ProjectLine.line_no, ProjectLine.id)
     ).all()
+    ai_enabled = read_settings(db).ai_enabled
     return ProjectOut(
         id=project.id,
         name=project.name,
@@ -75,8 +81,8 @@ def project_out(db: Session, project: Project) -> ProjectOut:
         order_no=project.order_no or "",
         imported_at=project.imported_at,
         line_count=len(lines),
-        ai_enabled=get_settings().ai_enabled,
-        lines=[line_out(line) for line in lines],
+        ai_enabled=ai_enabled,
+        lines=[line_out(line, include_match=ai_enabled) for line in lines],
     )
 
 
@@ -167,6 +173,20 @@ async def import_project(
     return project_out(db, project)
 
 
+@router.put("/{project_id}", response_model=ProjectOut)
+def update_project(
+    project_id: int,
+    body: ProjectUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProjectOut:
+    project = _own_project(db, user, project_id)
+    project.purchase_sets = body.purchase_sets
+    apply_match(db, user.id, project)
+    db.commit()
+    return project_out(db, project)
+
+
 @router.post("/{project_id}/match", response_model=ProjectOut)
 def rematch(project_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ProjectOut:
     project = _own_project(db, user, project_id)
@@ -201,6 +221,7 @@ def adopt_line(
             "category": line.category,
             "value": line.value,
             "params": line.params,
+            "specs": specs_from_params(line.category or "", line.params or ""),
             "datasheet_url": "",
             "image_url": "",
             "mall_stock": None,
@@ -216,6 +237,7 @@ def adopt_line(
         category=info.get("category") or "",
         value=info.get("value") or "",
         params=info.get("params") or "",
+        specs=info.get("specs") or {},
         datasheet_url=info.get("datasheet_url") or "",
         image_url=info.get("image_url") or "",
         quantity=0,

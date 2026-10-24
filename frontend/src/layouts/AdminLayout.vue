@@ -11,6 +11,7 @@ const isAdmin = ref(false)
 const active = computed(() => {
   if (route.path.startsWith('/projects')) return '/projects'
   if (route.path.startsWith('/users')) return '/users'
+  if (route.path.startsWith('/settings')) return '/settings'
   return route.path
 })
 
@@ -48,6 +49,10 @@ async function logout() {
         <el-menu-item v-if="isAdmin" index="/users">
           <el-icon><User /></el-icon>
           <span>账户管理</span>
+        </el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/settings">
+          <el-icon><Setting /></el-icon>
+          <span>系统配置</span>
         </el-menu-item>
       </el-menu>
     </el-aside>

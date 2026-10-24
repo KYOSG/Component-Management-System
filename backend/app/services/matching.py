@@ -5,8 +5,8 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import Box, Item, Project, ProjectLine, utcnow
+from app.services.system_config import read_settings
 from app.services.match import ItemSnap, LineSnap, match_lines
 
 
@@ -40,6 +40,11 @@ def apply_match(db: Session, user_id: int, project: Project) -> None:
         .where(ProjectLine.project_id == project.id)
         .order_by(ProjectLine.line_no, ProjectLine.id)
     ).all()
+    purchase_sets = project.purchase_sets or 1
+    if purchase_sets < 1:
+        purchase_sets = 1
+    for line in lines:
+        line.quantity_required = (line.quantity_per_board or 0) * purchase_sets
     snaps = [
         LineSnap(
             id=line.id,
@@ -58,7 +63,18 @@ def apply_match(db: Session, user_id: int, project: Project) -> None:
         for line in lines
     ]
     matched_at = utcnow()
-    for line, result in zip(lines, match_lines(snaps, items, ai_enabled=get_settings().ai_enabled)):
+    ai = read_settings(db)
+    for line, result in zip(
+        lines,
+        match_lines(
+            snaps,
+            items,
+            ai_enabled=ai.ai_enabled,
+            api_key=ai.deepseek_api_key,
+            base_url=ai.deepseek_base_url,
+            model=ai.deepseek_model,
+        ),
+    ):
         line.match_status = result.status
         line.matched_item_id = result.matched_item_id
         line.suggestions_json = json.dumps(result.suggestions, ensure_ascii=False)

@@ -22,11 +22,31 @@ def test_footprint_and_value_normalization():
     assert norm_value("4.7μF") == norm_value("4.7uF")
 
 
-def test_exact_code_matches_without_deepseek():
-    result = match_lines(
+def test_disabled_ai_skips_exact_and_rules():
+    exact = match_lines(
         [line(lcsc_code="C105580", mpn="OTHER")],
         [item(lcsc_code="C105580", mpn="RC0603FR-075K1L", quantity=50)],
         ai_enabled=False,
+    )[0]
+    assert exact.status == ""
+    assert exact.matched_item_id is None
+    assert exact.suggestions["exact_hits"] == []
+    assert exact.suggestions["candidates"] == []
+    suggested = match_lines(
+        [line(mpn="0603WAF1002T5E", footprint="R0603", value="10kΩ", category="")],
+        [item(id=7, mpn="OTHER", footprint="0603", value="10kΩ", category="电阻")],
+        ai_enabled=False,
+    )[0]
+    assert suggested.status == ""
+    assert suggested.matched_item_id is None
+    assert suggested.suggestions["candidates"] == []
+
+
+def test_exact_code_matches():
+    result = match_lines(
+        [line(lcsc_code="C105580", mpn="OTHER")],
+        [item(lcsc_code="C105580", mpn="RC0603FR-075K1L", quantity=50)],
+        ai_enabled=True,
     )[0]
     assert result.status == "matched"
     assert result.matched_item_id == 1
@@ -37,7 +57,7 @@ def test_exact_mpn_ignores_case_and_spaces():
     result = match_lines(
         [line(mpn="abc 123")],
         [item(mpn="ABC123", lcsc_code="")],
-        ai_enabled=False,
+        ai_enabled=True,
     )[0]
     assert result.status == "matched"
     assert result.suggestions["reason"] == "厂家型号一致"
@@ -47,7 +67,7 @@ def test_insufficient_stock():
     result = match_lines(
         [line(lcsc_code="C1", quantity_required=20)],
         [item(lcsc_code="C1", quantity=5)],
-        ai_enabled=False,
+        ai_enabled=True,
     )[0]
     assert result.status == "insufficient"
 
@@ -60,17 +80,21 @@ def test_multiple_hits_prefer_enough_stock_and_same_footprint():
             item(id=2, lcsc_code="C1", footprint="0603", quantity=3, mpn="LOW"),
             item(id=3, lcsc_code="C1", footprint="R0603", quantity=30, mpn="GOOD"),
         ],
-        ai_enabled=False,
+        ai_enabled=True,
     )[0]
     assert result.matched_item_id == 3
     assert len(result.suggestions["exact_hits"]) == 3
 
 
-def test_same_footprint_and_value_suggests_without_ai():
+def test_same_footprint_and_value_suggests_when_ai_batch_fails(monkeypatch):
+    def fake_suggest(lines, **_kwargs):
+        return {int(lines[0]["line_id"]): None}
+
+    monkeypatch.setattr("app.services.match.suggest", fake_suggest)
     result = match_lines(
         [line(mpn="0603WAF1002T5E", footprint="R0603", value="10kΩ", category="")],
         [item(id=7, mpn="OTHER", footprint="0603", value="10kΩ", category="电阻", box_name="A", row=1, col=2)],
-        ai_enabled=False,
+        ai_enabled=True,
     )[0]
     assert result.status == "suggested"
     assert result.matched_item_id == 7
@@ -82,13 +106,13 @@ def test_no_candidate_is_not_found():
     result = match_lines(
         [line(mpn="NONE", footprint="QFN-32", value="", category="连接器")],
         [item(mpn="OTHER", footprint="0603", value="10kΩ", category="电阻")],
-        ai_enabled=False,
+        ai_enabled=True,
     )[0]
     assert result.status == "not_found"
 
 
 def test_ai_drops_ids_outside_candidates(monkeypatch):
-    def fake_suggest(lines):
+    def fake_suggest(lines, **_kwargs):
         return {
             lines[0]["line_id"]: [
                 {"item_id": 999, "suitable": True, "reason": "编造", "risks": []},

@@ -6,9 +6,11 @@ import re
 
 import httpx
 
-from app.config import get_settings
-
 logger = logging.getLogger(__name__)
+
+
+class AiChatError(Exception):
+    pass
 
 SYSTEM_PROMPT = (
     "你是电子物料替代审核助手。只能从每条明细给出的候选 item_id 中选择，禁止编造候选之外的编号。"
@@ -20,21 +22,71 @@ ALLOWED_RISKS = {"耐压", "精度", "功率", "温度", "封装", "库存"}
 BATCH_SIZE = 5
 
 
-def suggest(lines: list[dict]) -> dict[int, list[dict] | None]:
-    settings = get_settings()
-    if not settings.deepseek_api_key or not lines:
+def suggest(
+    lines: list[dict],
+    *,
+    api_key: str = "",
+    base_url: str = "",
+    model: str = "",
+) -> dict[int, list[dict] | None]:
+    api_key = (api_key or "").strip()
+    base_url = (base_url or "https://api.deepseek.com").rstrip("/")
+    model = (model or "deepseek-chat").strip()
+    if not api_key or not lines:
         return {}
     output: dict[int, list[dict] | None] = {}
     for offset in range(0, len(lines), BATCH_SIZE):
         chunk = lines[offset : offset + BATCH_SIZE]
         try:
-            parsed = _request(chunk, settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
+            parsed = _request(chunk, api_key, base_url, model)
             output.update(_accept(chunk, parsed))
         except Exception:
             logger.warning("DeepSeek 批次失败，本批改用规则预筛", exc_info=True)
             for row in chunk:
                 output[int(row["line_id"])] = None
     return output
+
+
+def chat(prompt: str, *, api_key: str, base_url: str, model: str) -> str:
+    api_key = (api_key or "").strip()
+    base_url = (base_url or "https://api.deepseek.com").rstrip("/")
+    model = (model or "deepseek-chat").strip()
+    if not api_key:
+        raise AiChatError("请先填写 API Key")
+    try:
+        response = httpx.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7,
+            },
+            timeout=60,
+        )
+    except httpx.RequestError as exc:
+        raise AiChatError(f"无法连接接口：{exc}") from exc
+    if response.status_code >= 400:
+        raise AiChatError(_error_detail(response))
+    try:
+        content = response.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise AiChatError("接口返回的内容无法解析") from exc
+    if not isinstance(content, str) or not content.strip():
+        raise AiChatError("模型没有返回文本")
+    return content
+
+
+def _error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return text[:200] or f"接口返回 {response.status_code}"
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])[:300]
+    return f"接口返回 {response.status_code}"
 
 
 def _request(chunk: list[dict], api_key: str, base_url: str, model: str) -> dict:

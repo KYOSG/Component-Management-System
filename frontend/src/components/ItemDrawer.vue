@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api'
-import { itemPayload } from '../format'
+import { itemPayload, specFields } from '../format'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -22,6 +22,7 @@ const empty = () => ({
   category: '',
   value: '',
   params: '',
+  specs: {},
   quantity: 0,
   box_id: null,
   row: null,
@@ -44,6 +45,7 @@ watch(
   (open) => {
     if (!open) return
     Object.assign(form, empty(), props.item?.id ? props.item : props.draft || {})
+    form.specs = { ...(form.specs || {}) }
     hint.value = ''
   },
 )
@@ -81,6 +83,7 @@ async function queryLcsc() {
       category: data.category,
       value: data.value,
       params: data.params,
+      specs: { ...(data.specs || {}) },
       datasheet_url: data.datasheet_url,
       image_url: data.image_url,
     }, keep)
@@ -114,8 +117,8 @@ async function save() {
 </script>
 
 <template>
-  <el-drawer :model-value="modelValue" :title="title" size="480px" @close="close">
-    <el-form label-width="96px" @submit.prevent>
+  <el-drawer :model-value="modelValue" :title="title" size="520px" @close="close">
+    <el-form label-width="168px" @submit.prevent>
       <el-form-item label="立创编号">
         <el-input v-model="form.lcsc_code" clearable placeholder="例如 C105580">
           <template #append>
@@ -141,6 +144,9 @@ async function save() {
       </el-form-item>
       <el-form-item label="标称值">
         <el-input v-model="form.value" placeholder="5.1kΩ、4.7uF" />
+      </el-form-item>
+      <el-form-item v-for="field in specFields(form.category)" :key="field.key" :label="field.label">
+        <el-input v-model="form.specs[field.key]" />
       </el-form-item>
       <el-form-item label="参数">
         <el-input v-model="form.params" type="textarea" :rows="4" />

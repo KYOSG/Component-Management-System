@@ -105,9 +105,9 @@ def test_import_samples_match_exact_and_substitute(client):
     target = next(line for line in body["lines"] if line["mpn"] == "0603WAF1002T5E")
     assert target["lcsc_code"] == ""
     assert target["footprint"] == "R0603"
-    assert target["match_status"] == "suggested"
-    assert "0603" in target["reason"]
-    assert "10kΩ" in target["reason"]
+    assert target["match_status"] == ""
+    assert target["reason"] == ""
+    assert target["locations"] == []
     coded = client.post(
         "/api/items",
         json={"lcsc_code": "C105580", "mpn": "RC0603FR-075K1L", "footprint": "0603", "quantity": 500},
@@ -124,14 +124,52 @@ def test_import_samples_match_exact_and_substitute(client):
     matched = next(line for line in quote_body["lines"] if line["lcsc_code"] == "C105580")
     assert matched["designators"] == "R13,R14"
     assert matched["quantity_per_board"] == 2
-    assert matched["quantity_required"] == 100
-    assert matched["match_status"] == "matched"
+    assert matched["quantity_required"] == 4
+    assert matched["match_status"] == ""
+    assert matched["reason"] == ""
     highlighted = client.get("/api/map", params={"project_id": quote_body["id"]}).json()
-    assert "R13" in highlighted["highlights"][str(coded.json()["id"])]
+    assert highlighted["highlights"] == {}
     with TestClient(app) as other:
         register(other, "other@example.com")
         assert other.get("/api/projects").json() == []
         assert other.get(f"/api/projects/{quote_body['id']}").status_code == 404
+
+
+def test_purchase_sets_recalculate_required(client):
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import ProjectLine
+
+    register(client, "sets@example.com")
+    imported = client.post(
+        "/api/projects/import",
+        files={"file": (QUOTE_FILE.name, QUOTE_FILE.read_bytes(), "application/vnd.ms-excel")},
+    )
+    assert imported.status_code == 200, imported.text
+    project_id = imported.json()["id"]
+    db = SessionLocal()
+    try:
+        stored = db.scalar(select(ProjectLine).where(ProjectLine.project_id == project_id, ProjectLine.lcsc_code == "C105580"))
+        stored.quantity_required = 100
+        db.commit()
+    finally:
+        db.close()
+    rematched = client.post(f"/api/projects/{project_id}/match")
+    assert rematched.status_code == 200, rematched.text
+    line = next(item for item in rematched.json()["lines"] if item["lcsc_code"] == "C105580")
+    assert line["quantity_per_board"] == 2
+    assert line["quantity_required"] == 4
+    updated = client.put(f"/api/projects/{project_id}", json={"purchase_sets": 3})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["purchase_sets"] == 3
+    changed = next(item for item in updated.json()["lines"] if item["lcsc_code"] == "C105580")
+    assert changed["quantity_required"] == 6
+    rejected = client.put(f"/api/projects/{project_id}", json={"purchase_sets": 0})
+    assert rejected.status_code == 422
+    with TestClient(app) as other:
+        register(other, "sets-other@example.com")
+        assert other.put(f"/api/projects/{project_id}", json={"purchase_sets": 4}).status_code == 404
 
 
 def test_initial_admin_and_user_removal(client):

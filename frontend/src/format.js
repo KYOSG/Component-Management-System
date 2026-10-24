@@ -23,6 +23,48 @@ export function cellText(row, col) {
   return `第${row}行第${col}列`
 }
 
+export const SPEC_FIELDS = {
+  电阻: [
+    { key: 'tolerance', label: '精度' },
+    { key: 'power', label: '功率' },
+    { key: 'tempco', label: '温度系数' },
+  ],
+  电容: [
+    { key: 'voltage', label: '额定电压' },
+    { key: 'tempco', label: '温度系数' },
+    { key: 'tolerance', label: '精度' },
+  ],
+  电感: [
+    { key: 'isat', label: '饱和电流' },
+    { key: 'tolerance', label: '精度' },
+  ],
+  二极管: [
+    { key: 'vr', label: '反向耐压' },
+    { key: 'if', label: '正向电流' },
+  ],
+  MOS: [
+    { key: 'vds', label: '漏源耐压' },
+    { key: 'id', label: '连续漏极电流' },
+    { key: 'rds', label: '导通电阻' },
+  ],
+  三极管: [
+    { key: 'vceo', label: '集电极-发射极耐压' },
+    { key: 'ic', label: '集电极电流' },
+  ],
+}
+
+export function specFields(category) {
+  return SPEC_FIELDS[(category || '').trim()] || []
+}
+
+export function filledSpecs(item) {
+  if (!item) return []
+  const specs = item.specs || {}
+  return specFields(item.category)
+    .filter((field) => specs[field.key])
+    .map((field) => ({ key: field.key, label: field.label, value: specs[field.key] }))
+}
+
 export function itemPayload(item, extra = {}) {
   return {
     lcsc_code: item.lcsc_code || '',
@@ -33,6 +75,7 @@ export function itemPayload(item, extra = {}) {
     category: item.category || '',
     value: item.value || '',
     params: item.params || '',
+    specs: { ...(item.specs || {}) },
     quantity: item.quantity || 0,
     box_id: item.box_id ?? null,
     row: item.row ?? null,

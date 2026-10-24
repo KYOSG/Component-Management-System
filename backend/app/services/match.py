@@ -110,7 +110,17 @@ def category_tags(text: str) -> set[str]:
     return {label for label, keys in CATEGORY_RULES if any(key.lower() in blob for key in keys)}
 
 
-def match_lines(lines: list[LineSnap], items: list[ItemSnap], *, ai_enabled: bool) -> list[MatchResult]:
+def match_lines(
+    lines: list[LineSnap],
+    items: list[ItemSnap],
+    *,
+    ai_enabled: bool,
+    api_key: str = "",
+    base_url: str = "",
+    model: str = "",
+) -> list[MatchResult]:
+    if not ai_enabled:
+        return [MatchResult(status="", matched_item_id=None, suggestions=_empty("disabled")) for _line in lines]
     drafts: list[tuple[str, LineSnap, list[ItemSnap], list[Candidate]]] = []
     for line in lines:
         hits = _exact_hits(line, items)
@@ -123,7 +133,7 @@ def match_lines(lines: list[LineSnap], items: list[ItemSnap], *, ai_enabled: boo
     if ai_enabled:
         payload = [_ai_payload(line, ranked) for kind, line, _hits, ranked in drafts if kind == "open" and ranked]
         if payload:
-            ai_map = suggest(payload)
+            ai_map = suggest(payload, api_key=api_key, base_url=base_url, model=model)
 
     results: list[MatchResult] = []
     for kind, line, hits, ranked in drafts:

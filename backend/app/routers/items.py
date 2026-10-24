@@ -8,6 +8,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Box, Item, ProjectLine, User, utcnow
 from app.schemas import ItemIn, ItemOut, ItemPage
+from app.services.specs import clean_specs, dump_specs, load_specs
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -28,6 +29,7 @@ def item_out(item: Item, box_name: str | None = None) -> ItemOut:
         category=item.category or "",
         value=item.value or "",
         params=item.params or "",
+        specs=load_specs(item.specs),
         quantity=item.quantity or 0,
         box_id=item.box_id,
         box_name=box_name,
@@ -85,6 +87,7 @@ def apply_fields(db: Session, user: User, item: Item, data: ItemIn) -> None:
     item.category = data.category.strip()
     item.value = data.value.strip()
     item.params = data.params.strip()
+    item.specs = dump_specs(clean_specs(item.category, data.specs))
     item.quantity = data.quantity
     item.box_id = box_id
     item.row = row

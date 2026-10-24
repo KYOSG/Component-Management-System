@@ -10,6 +10,8 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const matching = ref(false)
+const savingSets = ref(false)
+const committedSets = ref(null)
 const project = ref(null)
 const boxes = ref([])
 const drawer = ref(false)
@@ -22,6 +24,7 @@ async function load() {
       http.get(`/projects/${route.params.id}`),
       http.get('/boxes'),
     ])
+    committedSets.value = data.purchase_sets
     project.value = data
     boxes.value = boxRes.data
   } finally {
@@ -33,10 +36,26 @@ async function rematch() {
   matching.value = true
   try {
     const { data } = await http.post(`/projects/${route.params.id}/match`)
+    committedSets.value = data.purchase_sets
     project.value = data
     ElMessage.success('已重新匹配')
   } finally {
     matching.value = false
+  }
+}
+
+async function saveSets(value) {
+  if (!project.value || value == null || value < 1 || value === committedSets.value) return
+  savingSets.value = true
+  try {
+    const { data } = await http.put(`/projects/${route.params.id}`, { purchase_sets: value })
+    committedSets.value = data.purchase_sets
+    project.value = data
+    ElMessage.success('已更新采购套数')
+  } catch {
+    await load()
+  } finally {
+    savingSets.value = false
   }
 }
 
@@ -65,7 +84,7 @@ onMounted(load)
       </div>
       <el-alert
         v-if="!project.ai_enabled"
-        title="未配置 DeepSeek，仅使用精确匹配和规则预筛，未启用智能建议。"
+        title="未配置辅助Ai，未启用智能建议"
         type="info"
         show-icon
         :closable="false"
@@ -75,7 +94,16 @@ onMounted(load)
         <el-descriptions-item label="名称">{{ project.name }}</el-descriptions-item>
         <el-descriptions-item label="格式">{{ FORMAT_LABEL[project.format] || project.format }}</el-descriptions-item>
         <el-descriptions-item label="来源文件">{{ project.source_filename }}</el-descriptions-item>
-        <el-descriptions-item label="采购套数">{{ project.purchase_sets }}</el-descriptions-item>
+        <el-descriptions-item label="采购套数">
+          <el-input-number
+            v-model="project.purchase_sets"
+            :min="1"
+            :step="1"
+            :precision="0"
+            :disabled="savingSets"
+            @change="saveSets"
+          />
+        </el-descriptions-item>
         <el-descriptions-item label="配单编号">{{ project.order_no || '—' }}</el-descriptions-item>
         <el-descriptions-item label="导入时间">{{ formatDate(project.imported_at) }}</el-descriptions-item>
       </el-descriptions>
