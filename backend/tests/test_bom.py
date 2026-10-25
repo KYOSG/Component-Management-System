@@ -1,4 +1,4 @@
-from app.services.bom import parse_upload
+from app.services.bom import ParsedLine, parse_upload
 from tests.samples import EDA_FILE, QUOTE_FILE
 
 
@@ -40,6 +40,65 @@ def test_lcsc_quote_sample():
     assert line.footprint == "0603"
     assert line.value == "5.1kΩ"
     assert line.category == "电阻"
+
+
+def test_location_omits_part_number():
+    from app.routers.projects import _location
+
+    assert _location({"mpn": "0603WAF6201T5E", "box_name": "料盒1", "row": 1, "col": 1, "quantity": 100}) == "料盒1 1-1（库存 100）"
+    assert _location({"mpn": "RC0603FR-075K1L", "quantity": 0}) == "未入盒（库存 0）"
+
+
+def test_easyeda_supplier_part_is_lcsc_code():
+    import io
+
+    import openpyxl
+
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["No.", "Quantity", "Footprint", "LCSC Price", "Manufacturer", "Manufacturer Part", "Supplier Part", "Value"])
+    sheet.append([1, 2, "R0603", "", "YAGEO", "RC0603FR-0710KL", "C17414", "10kΩ"])
+    sheet.append([2, 1, "C0603", "", "SAMSUNG", "CL10A105KB8NNNC", "", "1uF"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    parsed = parse_upload("board.xlsx", buffer.getvalue())
+    assert parsed.format == "easyeda_v131"
+    coded, plain = parsed.lines
+    assert coded.lcsc_code == "C17414"
+    assert coded.needs_lcsc_enrich is True
+    assert coded.mpn == "RC0603FR-0710KL"
+    assert "Supplier Part" not in coded.params
+    assert plain.lcsc_code == ""
+    assert plain.needs_lcsc_enrich is False
+
+
+def test_enrich_uses_lcsc_fields_and_keeps_original_on_failure(monkeypatch):
+    from app.routers.projects import _enrich_lines
+
+    def fake_fetch(code):
+        if code == "C-FAIL":
+            raise RuntimeError("offline")
+        return {
+            "mpn": "FROM-API",
+            "brand": "YAGEO",
+            "footprint": "0603",
+            "value": "10kΩ",
+            "params": "阻值: 10kΩ",
+            "name": "10k 电阻",
+            "category": "电阻",
+        }
+
+    monkeypatch.setattr("app.routers.projects.fetch_lcsc", fake_fetch)
+    filled = ParsedLine(line_no=1, lcsc_code="C17414", mpn="OLD", value="10k", needs_lcsc_enrich=True)
+    failed = ParsedLine(line_no=2, lcsc_code="C-FAIL", mpn="KEEP", needs_lcsc_enrich=True)
+    skipped = ParsedLine(line_no=3, lcsc_code="C999", mpn="SKIP", needs_lcsc_enrich=False)
+    _enrich_lines([filled, failed, skipped])
+    assert filled.mpn == "FROM-API"
+    assert filled.category == "电阻"
+    assert filled.product_name == "10k 电阻"
+    assert filled.params == "阻值: 10kΩ"
+    assert failed.mpn == "KEEP"
+    assert skipped.mpn == "SKIP"
 
 
 def test_unknown_workbook_is_rejected():

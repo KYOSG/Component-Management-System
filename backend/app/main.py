@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.bootstrap import prepare_database
 from app.config import get_settings
-from app.routers import auth, boxes, items, lcsc, projects, settings, users
+from app.routers import auth, boxes, items, lcsc, media, projects, settings, users
 
 
 @asynccontextmanager
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(lcsc.router)
 app.include_router(items.router)
+app.include_router(media.router)
 app.include_router(boxes.router)
 app.include_router(projects.router)
 app.include_router(users.router)

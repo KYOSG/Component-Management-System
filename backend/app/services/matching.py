@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models import Box, Item, Project, ProjectLine, utcnow
+from app.services.deepseek import AiRun
 from app.services.system_config import read_settings
-from app.services.match import ItemSnap, LineSnap, match_lines
+from app.services.match import ItemSnap, LineSnap, ai_jobs, exact_lcsc_result, local_match_lines, run_ai, settle_ai
 
 
-def apply_match(db: Session, user_id: int, project: Project) -> None:
+def _write(line: ProjectLine, result, matched_at) -> None:
+    line.match_status = result.status
+    line.matched_item_id = result.matched_item_id
+    line.suggestions_json = json.dumps(result.suggestions, ensure_ascii=False)
+    line.matched_at = matched_at
+
+
+def _context(db: Session, user_id: int, project: Project):
     item_rows = db.execute(
         select(Item, Box.name)
         .outerjoin(Box, Item.box_id == Box.id)
@@ -62,20 +72,84 @@ def apply_match(db: Session, user_id: int, project: Project) -> None:
         )
         for line in lines
     ]
-    matched_at = utcnow()
     ai = read_settings(db)
-    for line, result in zip(
-        lines,
-        match_lines(
-            snaps,
-            items,
-            ai_enabled=ai.ai_enabled,
+    # 先提交，避免后面的网络请求占着 SQLite 写锁。
+    db.commit()
+    return items, lines, snaps, ai
+
+
+def apply_match(db: Session, user_id: int, project: Project) -> None:
+    items, lines, snaps, ai = _context(db, user_id, project)
+    matched_at = utcnow()
+    for line, result in zip(lines, local_match_lines(snaps, items, ai_enabled=ai.ai_enabled)):
+        _write(line, result, matched_at)
+    db.commit()
+
+
+def recommend_pending(project_id: int, user_id: int, run: AiRun, on_line: Callable[[ProjectLine], None]) -> None:
+    db = SessionLocal()
+    try:
+        project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
+        if project is None:
+            return
+        items, lines, snaps, ai = _context(db, user_id, project)
+        if not ai.ai_enabled or run.cancel.is_set():
+            return
+        pending_ids: list[int] = []
+        for line in lines:
+            try:
+                saved = json.loads(line.suggestions_json or "{}")
+            except json.JSONDecodeError:
+                saved = {}
+            if isinstance(saved, dict) and saved.get("source") == "pending":
+                pending_ids.append(line.id)
+        if not pending_ids:
+            return
+        snap_by_id = {snap.id: snap for snap in snaps}
+        orm_by_id = {line.id: line for line in lines}
+        still_pending: list[int] = []
+        matched_at = utcnow()
+        for line_id in pending_ids:
+            snap = snap_by_id.get(line_id)
+            orm = orm_by_id.get(line_id)
+            if snap is None or orm is None:
+                continue
+            exact = exact_lcsc_result(snap, items)
+            if exact is None:
+                still_pending.append(line_id)
+                continue
+            _write(orm, exact, matched_at)
+            db.commit()
+            on_line(orm)
+        jobs = ai_jobs([snap_by_id[line_id] for line_id in still_pending if line_id in snap_by_id], items)
+        if not jobs:
+            return
+        ranked_by_id = {snap.id: ranked for snap, ranked, _payload in jobs}
+        payloads = [payload for _snap, _ranked, payload in jobs]
+        db.commit()
+
+        def on_batch(part: dict) -> None:
+            if run.cancel.is_set():
+                return
+            matched_at = utcnow()
+            for line_id, picks in part.items():
+                snap = snap_by_id.get(int(line_id))
+                ranked = ranked_by_id.get(int(line_id))
+                orm = orm_by_id.get(int(line_id))
+                if snap is None or ranked is None or orm is None:
+                    continue
+                _write(orm, settle_ai(snap, ranked, picks), matched_at)
+                db.commit()
+                on_line(orm)
+
+        run_ai(
+            payloads,
             api_key=ai.deepseek_api_key,
             base_url=ai.deepseek_base_url,
             model=ai.deepseek_model,
-        ),
-    ):
-        line.match_status = result.status
-        line.matched_item_id = result.matched_item_id
-        line.suggestions_json = json.dumps(result.suggestions, ensure_ascii=False)
-        line.matched_at = matched_at
+            run=run,
+            on_batch=on_batch,
+        )
+    finally:
+        db.close()
+

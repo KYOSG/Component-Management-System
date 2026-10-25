@@ -27,6 +27,7 @@ class ParsedLine:
     params: str = ""
     product_name: str = ""
     category: str = ""
+    needs_lcsc_enrich: bool = False
 
 
 @dataclass
@@ -45,6 +46,7 @@ EDA_COLUMNS = {
     "lcsc price",
     "manufacturer",
     "manufacturer part",
+    "supplier part",
     "value",
 }
 
@@ -256,7 +258,8 @@ def _parse_eda(matrix: list[list[str]], header_index: int, filename: str) -> Par
         value = _pick(row, columns, "Value")
         footprint = _pick(row, columns, "Footprint")
         brand = _pick(row, columns, "Manufacturer")
-        if not any((mpn, value, footprint, brand)):
+        lcsc_code = _pick(row, columns, "Supplier Part")
+        if not any((mpn, value, footprint, brand, lcsc_code)):
             continue
         extras: list[str] = []
         for index, title in enumerate(header):
@@ -272,11 +275,13 @@ def _parse_eda(matrix: list[list[str]], header_index: int, filename: str) -> Par
                 line_no=_parse_int(_pick(row, columns, "No."), default=len(lines) + 1),
                 quantity_per_board=quantity,
                 quantity_required=quantity,
+                lcsc_code=lcsc_code,
                 mpn=mpn,
                 brand=brand,
                 footprint=footprint,
                 value=value,
                 params="；".join(extras),
+                needs_lcsc_enrich=bool(lcsc_code),
             )
         )
     if not lines:

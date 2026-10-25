@@ -76,6 +76,27 @@ def test_boxes_are_independent_and_items_move(client):
     assert again["unboxed"][0]["box_id"] is None
 
 
+def test_owner_can_delete_project_and_lines(client):
+    register(client, "drop-bom@example.com")
+    imported = client.post(
+        "/api/projects/import",
+        files={"file": (QUOTE_FILE.name, QUOTE_FILE.read_bytes(), "application/vnd.ms-excel")},
+    )
+    assert imported.status_code == 200, imported.text
+    project_id = imported.json()["id"]
+    assert imported.json()["line_count"] > 0
+    other = client.post("/api/auth/register", json={"email": "other-bom@example.com", "password": "secret1"})
+    assert other.status_code == 200, other.text
+    missing = client.delete(f"/api/projects/{project_id}")
+    assert missing.status_code == 404
+    owner = client.post("/api/auth/login", json={"email": "drop-bom@example.com", "password": "secret1"})
+    assert owner.status_code == 200, owner.text
+    deleted = client.delete(f"/api/projects/{project_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert client.get(f"/api/projects/{project_id}").status_code == 404
+    assert client.get("/api/projects").json() == []
+
+
 def test_import_samples_match_exact_and_substitute(client):
     register(client, "bom@example.com")
     box = client.post("/api/boxes", json={"name": "电阻盒", "rows": 5, "cols": 10}).json()
@@ -265,3 +286,143 @@ def test_unknown_file_does_not_create_project(client):
     assert response.status_code == 400
     assert "无法识别" in response.json()["detail"]
     assert client.get("/api/projects").json() == []
+
+
+def _quote_workbook() -> bytes:
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["商品编号", "Designator", "Quantity", "型号", "目录", "Footprint", "Name"])
+    sheet.append(["", "R1", 2, "R-10K", "电阻", "R0603", "10kΩ"])
+    sheet.append(["", "R2", 3, "R-10K-B", "电阻", "0603", "10kΩ"])
+    sheet.append(["", "C1", 4, "C-100N", "电容", "0402", "100nF"])
+    sheet.append(["C100", "U1", 6, "MCU", "芯片", "LQFP48", "STM32"])
+    sheet.append(["C200", "U2", 1, "LDO", "电源", "SOT23", "3.3V"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def test_bulk_add_checkout_and_stock_delta(client):
+    register(client, "stock@example.com")
+    resistor = client.post(
+        "/api/items",
+        json={"mpn": "LIB-10K", "category": "电阻", "footprint": "0603", "value": "10kΩ", "quantity": 8},
+    )
+    assert resistor.status_code == 200, resistor.text
+    resistor_id = resistor.json()["id"]
+    coded = client.post(
+        "/api/items",
+        json={"lcsc_code": "C100", "mpn": "LIB-MCU", "category": "芯片", "footprint": "LQFP48", "value": "STM32", "quantity": 1},
+    )
+    assert coded.status_code == 200, coded.text
+    coded_id = coded.json()["id"]
+    imported = client.post(
+        "/api/projects/import",
+        files={"file": ("quote.xlsx", _quote_workbook(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert imported.status_code == 200, imported.text
+    project_id = imported.json()["id"]
+    added = client.post(f"/api/projects/{project_id}/add-all")
+    assert added.status_code == 200, added.text
+    assert added.json() == {"added": 2, "incremented": 3}
+    detail = client.get(f"/api/projects/{project_id}").json()
+    resistors = [line for line in detail["lines"] if line["category"] == "电阻"]
+    assert {line["matched_item_id"] for line in resistors} == {resistor_id}
+    assert all(line["stock"] == 13 and line["match_status"] == "matched" for line in resistors)
+    assert client.get(f"/api/items/{resistor_id}").json()["quantity"] == 13
+    mcu = next(line for line in detail["lines"] if line["lcsc_code"] == "C100")
+    assert mcu["matched_item_id"] == coded_id
+    assert mcu["stock"] == 7
+    cap = next(line for line in detail["lines"] if line["category"] == "电容")
+    assert cap["matched_item_id"] not in {resistor_id, coded_id}
+    assert cap["stock"] == 4
+    checked = client.post(f"/api/projects/{project_id}/checkout")
+    assert checked.status_code == 200, checked.text
+    assert checked.json() == {"deducted": 5, "skipped": 0}
+    assert client.get(f"/api/items/{resistor_id}").json()["quantity"] == 8
+    assert client.get(f"/api/items/{coded_id}").json()["quantity"] == 1
+    delta = client.post(f"/api/projects/{project_id}/lines/{mcu['id']}/stock-delta", json={"delta": -10})
+    assert delta.status_code == 200, delta.text
+    assert delta.json()["stock"] == -9
+    assert delta.json()["match_status"] == "insufficient"
+    assert client.get(f"/api/items/{coded_id}").json()["quantity"] == -9
+    rejected = client.post(f"/api/projects/{project_id}/lines/{cap['id']}/accept")
+    assert rejected.status_code == 400
+    from app.database import SessionLocal
+    from app.models import ProjectLine
+
+    db = SessionLocal()
+    try:
+        stored = db.get(ProjectLine, cap["id"])
+        stored.match_status = "suggested"
+        db.commit()
+    finally:
+        db.close()
+    accepted = client.post(f"/api/projects/{project_id}/lines/{cap['id']}/accept")
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["match_status"] == "insufficient"
+    assert accepted.json()["matched_item_id"] == cap["matched_item_id"]
+
+
+def test_replace_bom_line_with_library_item_leaves_stock_unchanged(client, monkeypatch):
+    register(client, "replace@example.com")
+    library = client.post(
+        "/api/items",
+        json={"lcsc_code": "C555", "mpn": "LIB-555", "brand": "库中品牌", "footprint": "0603", "category": "电阻", "value": "1kΩ", "quantity": 9},
+    )
+    assert library.status_code == 200, library.text
+    item_id = library.json()["id"]
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["商品编号", "Designator", "Quantity", "型号", "目录", "Footprint", "Name"])
+    sheet.append(["C1", "R1", 2, "BOM-OLD", "电容", "0402", "100nF"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    imported = client.post(
+        "/api/projects/import",
+        files={"file": ("quote.xlsx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert imported.status_code == 200, imported.text
+    project_id = imported.json()["id"]
+    line_id = imported.json()["lines"][0]["id"]
+    replaced = client.post(f"/api/projects/{project_id}/lines/{line_id}/replace", json={"item_id": item_id})
+    assert replaced.status_code == 200, replaced.text
+    body = replaced.json()
+    assert body["lcsc_code"] == "C555"
+    assert body["mpn"] == "LIB-555"
+    assert body["brand"] == "库中品牌"
+    assert body["value"] == "1kΩ"
+    assert body["category"] == "电阻"
+    assert body["matched_item_id"] == item_id
+    assert body["reason"] == ""
+    stored = client.get(f"/api/items/{item_id}").json()
+    assert stored["quantity"] == 9
+    assert stored["mpn"] == "LIB-555"
+
+    def fake_fetch(code):
+        assert code == "C777"
+        return {
+            "lcsc_code": "C777",
+            "mpn": "NEW-777",
+            "name": "新建电阻",
+            "brand": "新品牌",
+            "footprint": "0805",
+            "category": "电阻",
+            "value": "2kΩ",
+            "params": "精度: ±1%",
+            "specs": {},
+            "datasheet_url": "",
+            "image_url": "",
+        }
+
+    monkeypatch.setattr("app.routers.items.fetch_lcsc", fake_fetch)
+    created = client.post("/api/items/from-lcsc", json={"lcsc_code": "C777"})
+    assert created.status_code == 200, created.text
+    assert created.json()["mpn"] == "NEW-777"
+    assert created.json()["quantity"] == 0
+    again = client.post("/api/items/from-lcsc", json={"lcsc_code": "c777"})
+    assert again.status_code == 200
+    assert again.json()["id"] == created.json()["id"]
+    found = client.get("/api/items", params={"q": "2kΩ"})
+    assert found.status_code == 200
+    assert [row["id"] for row in found.json()["items"]] == [created.json()["id"]]

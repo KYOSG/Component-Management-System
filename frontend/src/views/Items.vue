@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import http from '../api'
-import { cellText } from '../format'
+import { cellText, filledSpecs } from '../format'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
 const loading = ref(false)
@@ -101,43 +101,75 @@ onMounted(async () => {
     <div class="toolbar">
       <el-button type="primary" @click="create">新增物料</el-button>
     </div>
-    <el-table v-loading="loading" :data="rows" stripe>
-      <el-table-column prop="lcsc_code" label="编号" min-width="110">
+    <el-table v-loading="loading" class="items-table" :data="rows" stripe table-layout="auto">
+      <el-table-column prop="lcsc_code" label="编号" align="center" header-align="center">
         <template #default="{ row }">{{ row.lcsc_code || '—' }}</template>
       </el-table-column>
-      <el-table-column prop="mpn" label="型号" min-width="160" />
-      <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="footprint" label="封装" min-width="120" />
-      <el-table-column prop="category" label="类目" width="100" />
-      <el-table-column prop="quantity" label="库存" width="80" />
-      <el-table-column label="物料盒" min-width="120">
+      <el-table-column prop="category" label="类目" align="center" header-align="center">
+        <template #default="{ row }">{{ row.category || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="footprint" label="封装" align="center" header-align="center">
+        <template #default="{ row }">{{ row.footprint || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="value" label="标称值" align="center" header-align="center">
+        <template #default="{ row }">{{ row.value || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="参数" align="center" header-align="center">
+        <template #default="{ row }">
+          <template v-if="filledSpecs(row).length">
+            <div v-for="field in filledSpecs(row)" :key="field.key">{{ field.label }} {{ field.value }}</div>
+          </template>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="quantity" label="库存" align="center" header-align="center" />
+      <el-table-column label="物料盒" align="center" header-align="center">
         <template #default="{ row }">{{ row.box_name || '未入盒' }}</template>
       </el-table-column>
-      <el-table-column label="格子" width="130">
+      <el-table-column label="格子" align="center" header-align="center">
         <template #default="{ row }">{{ cellText(row.row, row.col) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" align="center" header-align="center">
         <template #default="{ row }">
-          <el-button link type="primary" @click="edit(row)">编辑</el-button>
-          <el-button link type="primary" :disabled="!row.box_id" @click="unbox(row)">移出</el-button>
-          <el-button link type="danger" @click="remove(row)">删除</el-button>
+          <div class="row-actions">
+            <el-button size="small" plain type="primary" @click="edit(row)">编辑</el-button>
+            <el-button size="small" plain type="primary" :disabled="!row.box_id" @click="unbox(row)">移出</el-button>
+            <el-button size="small" plain type="danger" @click="remove(row)">删除</el-button>
+          </div>
         </template>
       </el-table-column>
       <template #empty>
         <el-empty description="物料库还是空的" />
       </template>
     </el-table>
-    <div class="toolbar" style="justify-content: flex-end">
+    <div class="table-pager">
       <el-pagination
         v-model:current-page="filters.page"
         v-model:page-size="filters.page_size"
-        layout="total, sizes, prev, pager, next"
+        background
+        layout="prev, pager, next"
         :total="total"
-        :page-sizes="[10, 20, 50]"
         @current-change="load"
-        @size-change="search"
       />
     </div>
     <ItemDrawer v-model="drawer" :item="editing" :boxes="boxes" @saved="load" />
   </div>
 </template>
+
+<style scoped>
+.row-actions {
+  display: inline-flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.row-actions :deep(.el-button) {
+  margin-left: 0;
+}
+
+.table-pager {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+</style>

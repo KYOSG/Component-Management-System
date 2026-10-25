@@ -20,7 +20,7 @@ export function formatDate(value) {
 
 export function cellText(row, col) {
   if (!row || !col) return '未入盒'
-  return `第${row}行第${col}列`
+  return `${row}-${col}`
 }
 
 export const SPEC_FIELDS = {

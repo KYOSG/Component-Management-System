@@ -120,9 +120,11 @@ def prepare_connection(bind, session_factory, url: str) -> None:
     _ensure_specs_column(bind, session_factory)
     if fresh or _admin_account_missing(session_factory):
         _seed_admin(session_factory)
+    from app.services.images import cache_remote_item_images
     from app.services.system_config import ensure_settings
 
     ensure_settings(session_factory, url)
+    cache_remote_item_images(session_factory, url)
 
 
 def prepare_database() -> None:

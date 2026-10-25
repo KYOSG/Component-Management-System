@@ -85,4 +85,9 @@ def fetch_lcsc(code: str) -> dict:
         raise LcscError("查询失败，请手填")
     mapped = map_product(result)
     mapped["lcsc_code"] = mapped["lcsc_code"] or product_code
+    from app.services.images import localize, safe_stem
+
+    code = safe_stem(mapped["lcsc_code"])
+    remote = mapped.get("image_url") or ""
+    mapped["image_url"] = localize(remote, f"lcsc-{code}") if remote and code else ""
     return mapped

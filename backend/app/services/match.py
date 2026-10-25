@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from app.services.deepseek import suggest
+from app.services.deepseek import AiRun, suggest
 
 CHIP_SIZES = ("0201", "0402", "0603", "0805", "1206", "1210", "1812", "2010", "2512")
 ALLOWED_RISKS = {"耐压", "精度", "功率", "温度", "封装", "库存"}
@@ -110,6 +110,81 @@ def category_tags(text: str) -> set[str]:
     return {label for label, keys in CATEGORY_RULES if any(key.lower() in blob for key in keys)}
 
 
+def local_match_lines(
+    lines: list[LineSnap],
+    items: list[ItemSnap],
+    *,
+    ai_enabled: bool,
+) -> list[MatchResult]:
+    if not ai_enabled:
+        return [MatchResult(status="", matched_item_id=None, suggestions=_empty("disabled")) for _line in lines]
+    results: list[MatchResult] = []
+    for line in lines:
+        hits = _exact_hits(line, items)
+        if hits:
+            results.append(_exact_result(line, hits))
+            continue
+        ranked = _rank_candidates(line, items)
+        if not ranked:
+            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("skipped")))
+            continue
+        results.append(MatchResult(status="", matched_item_id=None, suggestions=_empty("pending")))
+    return results
+
+
+def exact_lcsc_result(line: LineSnap, items: list[ItemSnap]) -> MatchResult | None:
+    code = (line.lcsc_code or "").strip().lower()
+    if not code:
+        return None
+    hits = [item for item in items if (item.lcsc_code or "").strip().lower() == code]
+    if not hits:
+        return None
+    return _exact_result(line, hits)
+
+
+def ai_jobs(lines: list[LineSnap], items: list[ItemSnap]) -> list[tuple[LineSnap, list[Candidate], dict]]:
+    jobs: list[tuple[LineSnap, list[Candidate], dict]] = []
+    for line in lines:
+        if exact_lcsc_result(line, items) is not None:
+            continue
+        ranked = _rank_candidates(line, items)
+        if not ranked:
+            continue
+        jobs.append((line, ranked, _ai_payload(line, ranked[:8])))
+    return jobs
+
+
+def settle_ai(line: LineSnap, ranked: list[Candidate], picks: list[dict] | None) -> MatchResult:
+    if picks is None:
+        return MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("failed"))
+    return _ai_result(line, ranked, picks)
+
+
+def run_ai(
+    payloads: list[dict],
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    run: AiRun | None = None,
+    on_batch=None,
+) -> dict[int, list[dict] | None]:
+    seen: set[int] = set()
+
+    def wrapped(part: dict[int, list[dict] | None]) -> None:
+        seen.update(part)
+        if on_batch is not None:
+            on_batch(part)
+
+    result = suggest(payloads, api_key=api_key, base_url=base_url, model=model, run=run, on_batch=wrapped if on_batch else None)
+    if on_batch is None or (run is not None and run.cancel.is_set()):
+        return result
+    for line_id, picks in result.items():
+        if line_id not in seen:
+            on_batch({line_id: picks})
+    return result
+
+
 def match_lines(
     lines: list[LineSnap],
     items: list[ItemSnap],
@@ -131,7 +206,7 @@ def match_lines(
 
     ai_map: dict[int, list[dict] | None] = {}
     if ai_enabled:
-        payload = [_ai_payload(line, ranked) for kind, line, _hits, ranked in drafts if kind == "open" and ranked]
+        payload = [_ai_payload(line, ranked[:8]) for kind, line, _hits, ranked in drafts if kind == "open" and ranked]
         if payload:
             ai_map = suggest(payload, api_key=api_key, base_url=base_url, model=model)
 
@@ -140,11 +215,14 @@ def match_lines(
         if kind == "exact":
             results.append(_exact_result(line, hits))
             continue
-        ai_picks = ai_map.get(line.id) if ai_enabled and ranked else None
-        if ai_enabled and ranked and line.id in ai_map and ai_picks is not None:
-            results.append(_ai_result(line, ranked, ai_picks))
-        else:
-            results.append(_rule_result(line, ranked))
+        if not ranked:
+            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("skipped")))
+            continue
+        ai_picks = ai_map.get(line.id) if line.id in ai_map else None
+        if ai_picks is None:
+            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("failed")))
+            continue
+        results.append(_ai_result(line, ranked, ai_picks))
     return results
 
 
@@ -185,7 +263,7 @@ def _exact_result(line: LineSnap, hits: list[ItemSnap]) -> MatchResult:
         ),
     )
     by_code = (line.lcsc_code or "").strip() and (chosen.lcsc_code or "").strip().lower() == line.lcsc_code.strip().lower()
-    reason = "立创编号一致" if by_code else "厂家型号一致"
+    reason = "" if by_code else "厂家型号一致"
     status = "insufficient" if chosen.quantity < line.quantity_required else "matched"
     ordered = [chosen] + [item for item in hits if item.id != chosen.id]
     return MatchResult(
@@ -223,8 +301,6 @@ def _rank_candidates(line: LineSnap, items: list[ItemSnap]) -> list[Candidate]:
         if line_categories and item_categories and not shared:
             risks.append("类目")
         reason_parts: list[str] = []
-        if footprint_match:
-            reason_parts.append(f"封装主名同为 {line_footprint}")
         if value_match:
             reason_parts.append(f"标称值同为 {line.value or item.value}")
         if shared:
@@ -244,23 +320,6 @@ def _rank_candidates(line: LineSnap, items: list[ItemSnap]) -> list[Candidate]:
     return ranked[:20]
 
 
-def _rule_result(line: LineSnap, ranked: list[Candidate]) -> MatchResult:
-    if not ranked:
-        return MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("rule"))
-    candidates = [_brief(row.item, True, row.reason, row.risks) for row in ranked]
-    return MatchResult(
-        status="suggested",
-        matched_item_id=ranked[0].item.id,
-        suggestions={
-            "source": "rule",
-            "reason": ranked[0].reason,
-            "risks": ranked[0].risks,
-            "exact_hits": [],
-            "candidates": candidates,
-        },
-    )
-
-
 def _ai_result(line: LineSnap, ranked: list[Candidate], picks: list[dict]) -> MatchResult:
     by_id = {row.item.id: row for row in ranked}
     candidates = []
@@ -268,9 +327,11 @@ def _ai_result(line: LineSnap, ranked: list[Candidate], picks: list[dict]) -> Ma
         row = by_id.get(pick["item_id"])
         if row is None:
             continue
-        reason = pick["reason"] or row.reason
+        reason = str(pick.get("reason") or "").strip()
+        if not reason:
+            continue
         raw_risks = pick.get("risks") or []
-        risks = [risk for risk in raw_risks if risk in ALLOWED_RISKS] or row.risks
+        risks = [risk for risk in raw_risks if risk in ALLOWED_RISKS]
         candidates.append(_brief(row.item, True, reason, risks))
     if not candidates:
         return MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("ai"))
@@ -310,7 +371,6 @@ def _ai_payload(line: LineSnap, ranked: list[Candidate]) -> dict:
                 "params": row.item.params,
                 "quantity": row.item.quantity,
                 "box_name": row.item.box_name,
-                "rule_reason": row.reason,
             }
             for row in ranked
         ],

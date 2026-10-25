@@ -42,6 +42,22 @@ def test_disabled_ai_skips_exact_and_rules():
     assert suggested.suggestions["candidates"] == []
 
 
+def test_local_match_leaves_ai_pending_without_calling_model(monkeypatch):
+    from app.services.match import local_match_lines
+
+    called = []
+    monkeypatch.setattr("app.services.match.suggest", lambda *_args, **_kwargs: called.append(1))
+    result = local_match_lines(
+        [line(mpn="0603WAF1002T5E", footprint="R0603", value="10kΩ")],
+        [item(id=7, mpn="OTHER", footprint="0603", value="10kΩ")],
+        ai_enabled=True,
+    )[0]
+    assert called == []
+    assert result.status == ""
+    assert result.suggestions["source"] == "pending"
+    assert result.suggestions["candidates"] == []
+
+
 def test_exact_code_matches():
     result = match_lines(
         [line(lcsc_code="C105580", mpn="OTHER")],
@@ -50,7 +66,33 @@ def test_exact_code_matches():
     )[0]
     assert result.status == "matched"
     assert result.matched_item_id == 1
-    assert result.suggestions["reason"] == "立创编号一致"
+    assert result.suggestions["reason"] == ""
+
+
+def test_lcsc_match_is_not_sent_to_ai(monkeypatch):
+    sent = []
+
+    def fake_suggest(lines, **_kwargs):
+        sent.append([row["line_id"] for row in lines])
+        return {int(lines[0]["line_id"]): [{"item_id": 7, "suitable": True, "reason": "耐压覆盖需求", "risks": ["耐压"]}]}
+
+    monkeypatch.setattr("app.services.match.suggest", fake_suggest)
+    results = match_lines(
+        [
+            line(id=1, lcsc_code="C1", mpn="BOM-CODE"),
+            line(id=2, mpn="OTHER-BOM", footprint="R0603", value="10kΩ", lcsc_code=""),
+        ],
+        [
+            item(id=3, lcsc_code="C1", mpn="LIB-CODE", quantity=20),
+            item(id=7, mpn="OTHER", footprint="0603", value="10kΩ"),
+        ],
+        ai_enabled=True,
+    )
+    assert sent == [[2]]
+    assert results[0].status == "matched"
+    assert results[0].matched_item_id == 3
+    assert results[1].status == "suggested"
+    assert results[1].matched_item_id == 7
 
 
 def test_exact_mpn_ignores_case_and_spaces():
@@ -86,7 +128,7 @@ def test_multiple_hits_prefer_enough_stock_and_same_footprint():
     assert len(result.suggestions["exact_hits"]) == 3
 
 
-def test_same_footprint_and_value_suggests_when_ai_batch_fails(monkeypatch):
+def test_ai_failure_gives_no_suggestion(monkeypatch):
     def fake_suggest(lines, **_kwargs):
         return {int(lines[0]["line_id"]): None}
 
@@ -96,19 +138,28 @@ def test_same_footprint_and_value_suggests_when_ai_batch_fails(monkeypatch):
         [item(id=7, mpn="OTHER", footprint="0603", value="10kΩ", category="电阻", box_name="A", row=1, col=2)],
         ai_enabled=True,
     )[0]
-    assert result.status == "suggested"
-    assert result.matched_item_id == 7
-    assert "0603" in result.suggestions["reason"]
-    assert "10kΩ" in result.suggestions["reason"]
+    assert result.status == "not_found"
+    assert result.matched_item_id is None
+    assert result.suggestions["candidates"] == []
+    assert result.suggestions["reason"] == ""
 
 
-def test_no_candidate_is_not_found():
+def test_no_candidate_skips_ai(monkeypatch):
+    called = []
+
+    def fake_suggest(lines, **_kwargs):
+        called.append(lines)
+        return {}
+
+    monkeypatch.setattr("app.services.match.suggest", fake_suggest)
     result = match_lines(
         [line(mpn="NONE", footprint="QFN-32", value="", category="连接器")],
         [item(mpn="OTHER", footprint="0603", value="10kΩ", category="电阻")],
         ai_enabled=True,
     )[0]
+    assert called == []
     assert result.status == "not_found"
+    assert result.suggestions["candidates"] == []
 
 
 def test_ai_drops_ids_outside_candidates(monkeypatch):

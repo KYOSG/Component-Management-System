@@ -37,6 +37,55 @@ def test_ai_test_sends_prompt_and_returns_output(client, monkeypatch):
     assert "API Key" in missing.json()["detail"]
 
 
+def test_import_releases_database_before_ai(client, monkeypatch):
+    import sqlite3
+
+    from tests.conftest import DB_PATH
+    from tests.samples import EDA_FILE
+
+    admin = client.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+    assert admin.status_code == 200, admin.text
+    current = client.get("/api/settings").json()
+    saved = client.put("/api/settings", json={**current, "deepseek_api_key": "sk-test"})
+    assert saved.status_code == 200, saved.text
+    box = client.post("/api/boxes", json={"name": "锁测试盒", "rows": 2, "cols": 2}).json()
+    created = client.post(
+        "/api/items",
+        json={"mpn": "LOCK-TEST", "footprint": "0603", "value": "1uF", "quantity": 10, "box_id": box["id"], "row": 1, "col": 1},
+    )
+    assert created.status_code == 200, created.text
+    called = {"count": 0}
+
+    def fake_suggest(lines, **_kwargs):
+        called["count"] += 1
+        conn = sqlite3.connect(DB_PATH, timeout=0.5)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+        finally:
+            conn.close()
+        return {int(row["line_id"]): None for row in lines}
+
+    monkeypatch.setattr("app.services.match.suggest", fake_suggest)
+    try:
+        imported = client.post(
+            "/api/projects/import",
+            files={"file": (EDA_FILE.name, EDA_FILE.read_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["ai_enabled"] is True
+        assert called["count"] == 0
+        with client.stream("GET", f"/api/projects/{imported.json()['id']}/recommend") as response:
+            assert response.status_code == 200, response.text
+            body = "".join(response.iter_text())
+        assert called["count"] == 1
+        assert "event: done" in body
+        assert "event: line" in body
+    finally:
+        cleared = client.put("/api/settings", json={**current, "deepseek_api_key": ""})
+        assert cleared.status_code == 200, cleared.text
+
+
 def test_settings_require_admin(client):
     created = client.post("/api/auth/register", json={"email": "plain@example.com", "password": "secret1"})
     assert created.status_code == 200, created.text

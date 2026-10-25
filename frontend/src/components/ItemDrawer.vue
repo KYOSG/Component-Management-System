@@ -170,6 +170,7 @@ async function save() {
       </el-form-item>
       <el-form-item label="图片">
         <el-input v-model="form.image_url" />
+        <div class="muted">保存后图片放在服务器本机，打开物料盒时不再访问外网。</div>
         <el-image v-if="form.image_url" :src="form.image_url" fit="contain" style="width: 120px; height: 120px; margin-top: 8px" />
       </el-form-item>
       <el-form-item label="备注">

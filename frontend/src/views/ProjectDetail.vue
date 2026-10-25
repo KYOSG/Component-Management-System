@@ -1,21 +1,30 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api'
 import { FORMAT_LABEL, MATCH_STATUS, formatDate } from '../format'
+import CompareDialog from '../components/CompareDialog.vue'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
-const matching = ref(false)
 const savingSets = ref(false)
+const recommending = ref(false)
 const committedSets = ref(null)
+let recommendAbort = null
+let recommendTicket = 0
 const project = ref(null)
 const boxes = ref([])
 const drawer = ref(false)
 const draft = ref(null)
+const compareVisible = ref(false)
+const compareLine = ref({})
+const compareItem = ref(null)
+const recommendNow = sessionStorage.getItem('recommend-project') === String(route.params.id)
+if (recommendNow) sessionStorage.removeItem('recommend-project')
+let pageAlive = true
 
 async function load() {
   loading.value = true
@@ -32,26 +41,92 @@ async function load() {
   }
 }
 
-async function rematch() {
-  matching.value = true
+async function removeProject() {
+  if (!project.value) return
   try {
-    const { data } = await http.post(`/projects/${route.params.id}/match`)
-    committedSets.value = data.purchase_sets
-    project.value = data
-    ElMessage.success('已重新匹配')
-  } finally {
-    matching.value = false
+    await ElMessageBox.confirm(`删除 ${project.value.name}？明细会一起删除，物料库不受影响。`, '删除 BOM', { type: 'warning' })
+  } catch {
+    return
   }
+  await http.delete(`/projects/${project.value.id}`)
+  ElMessage.success('已删除')
+  router.push('/projects')
+}
+
+function needsRecommend(data) {
+  return Boolean(data?.ai_enabled && data.lines?.some((line) => line.match_status === ''))
+}
+
+function applyLine(line) {
+  const rows = project.value?.lines
+  if (!rows) return
+  const index = rows.findIndex((item) => item.id === line.id)
+  if (index >= 0) rows.splice(index, 1, line)
+}
+
+function stopRecommend() {
+  recommendAbort?.abort()
+}
+
+async function startRecommend() {
+  if (!needsRecommend(project.value)) return
+  stopRecommend()
+  const ticket = ++recommendTicket
+  const controller = new AbortController()
+  recommendAbort = controller
+  recommending.value = true
+  try {
+    const response = await fetch(`/api/projects/${route.params.id}/recommend`, {
+      credentials: 'include',
+      headers: { Accept: 'text/event-stream' },
+      signal: controller.signal,
+    })
+    if (!response.ok || !response.body) throw new Error('recommend failed')
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+      for (const part of parts) {
+        const dataLine = part.split('\n').find((item) => item.startsWith('data:'))
+        if (!dataLine) continue
+        const payload = JSON.parse(dataLine.slice(5).trim())
+        if (payload?.id) applyLine(payload)
+      }
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError') ElMessage.error('Ai推荐中断')
+  } finally {
+    if (ticket === recommendTicket) {
+      recommending.value = false
+      recommendAbort = null
+    }
+  }
+}
+
+async function rematch() {
+  stopRecommend()
+  const { data } = await http.post(`/projects/${route.params.id}/match`)
+  committedSets.value = data.purchase_sets
+  project.value = data
+  if (needsRecommend(data)) startRecommend()
+  else ElMessage.success('已重新匹配')
 }
 
 async function saveSets(value) {
   if (!project.value || value == null || value < 1 || value === committedSets.value) return
+  stopRecommend()
   savingSets.value = true
   try {
     const { data } = await http.put(`/projects/${route.params.id}`, { purchase_sets: value })
     committedSets.value = data.purchase_sets
     project.value = data
-    ElMessage.success('已更新采购套数')
+    if (needsRecommend(data)) startRecommend()
+    else ElMessage.success('已更新采购套数')
   } catch {
     await load()
   } finally {
@@ -60,6 +135,23 @@ async function saveSets(value) {
 }
 
 async function adopt(row) {
+  if (!row.lcsc_code) {
+    draft.value = {
+      lcsc_code: '',
+      mpn: row.mpn || '',
+      name: row.product_name || '',
+      brand: row.brand || '',
+      footprint: row.footprint || '',
+      category: row.category || '',
+      value: row.value || '',
+      params: row.params || '',
+      specs: {},
+      quantity: 0,
+    }
+    drawer.value = true
+    ElMessage.info('已用 BOM 中的字段预填，请核对后填写自有库存和物料盒再保存')
+    return
+  }
   const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/adopt`)
   if (data.warning) ElMessage.warning(data.warning)
   else ElMessage.info(`商城库存 ${data.mall_stock ?? '—'}，参考价格 ${data.mall_price || '—'}，请填写自有库存和物料盒后再保存`)
@@ -67,11 +159,72 @@ async function adopt(row) {
   drawer.value = true
 }
 
-function canAdopt(row) {
-  return row.lcsc_code && (row.match_status === 'not_found' || row.match_status === 'suggested')
+function replacementReason(row) {
+  return row?.reason === '立创编号一致' ? '' : (row?.reason || '')
 }
 
-onMounted(load)
+function canAdopt(row) {
+  return row.match_status === 'not_found' || row.match_status === 'suggested'
+}
+
+function canAccept(row) {
+  return row.match_status === 'suggested' && !!row.matched_item_id
+}
+
+async function addAll() {
+  stopRecommend()
+  const { data } = await http.post(`/projects/${route.params.id}/add-all`)
+  ElMessage.success(`已加入 ${data.added} 个，增量 ${data.incremented} 个`)
+  await load()
+}
+
+async function checkout() {
+  try {
+    await ElMessageBox.confirm('将按需求数量扣减已匹配物料的库存，库存可以为负数。未入库的行会跳过。', '一键出库', { type: 'warning' })
+  } catch {
+    return
+  }
+  stopRecommend()
+  const { data } = await http.post(`/projects/${route.params.id}/checkout`)
+  ElMessage.success(`已出库 ${data.deducted} 行，跳过 ${data.skipped} 行`)
+  await load()
+}
+
+async function acceptSuggestion(row) {
+  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/accept`)
+  applyLine(data)
+}
+
+async function stockDelta(row, delta) {
+  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/stock-delta`, { delta })
+  applyLine(data)
+}
+
+async function openCompare(row) {
+  compareLine.value = row
+  compareItem.value = null
+  if (row.matched_item_id) {
+    const { data } = await http.get(`/items/${row.matched_item_id}`)
+    compareItem.value = data
+  }
+  compareVisible.value = true
+}
+
+function onPageHide() {
+  stopRecommend()
+}
+
+onMounted(async () => {
+  window.addEventListener('pagehide', onPageHide)
+  await load()
+  if (pageAlive && recommendNow) startRecommend()
+})
+
+onBeforeUnmount(() => {
+  pageAlive = false
+  window.removeEventListener('pagehide', onPageHide)
+  stopRecommend()
+})
 </script>
 
 <template>
@@ -79,7 +232,10 @@ onMounted(load)
     <div v-if="project" class="page-card">
       <div class="toolbar">
         <el-button @click="router.push('/projects')">返回列表</el-button>
-        <el-button type="primary" :loading="matching" @click="rematch">重新匹配</el-button>
+        <el-button type="primary" :loading="recommending" @click="rematch">重新匹配</el-button>
+        <el-button type="success" @click="addAll">全部加入物料库</el-button>
+        <el-button type="warning" @click="checkout">一键出库</el-button>
+        <el-button type="danger" plain @click="removeProject">删除</el-button>
         <el-button @click="router.push({ path: '/map', query: { project: project.id } })">在物料盒地图中查看</el-button>
       </div>
       <el-alert
@@ -109,6 +265,14 @@ onMounted(load)
       </el-descriptions>
     </div>
     <div v-if="project" class="page-card">
+      <el-alert
+        v-if="recommending"
+        title="Ai推荐中"
+        type="info"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 16px"
+      />
       <el-table :data="project.lines" stripe>
         <el-table-column label="位号" min-width="120">
           <template #default="{ row }">{{ row.designators || '—' }}</template>
@@ -119,11 +283,16 @@ onMounted(load)
         <el-table-column label="立创编号" width="120">
           <template #default="{ row }">{{ row.lcsc_code || '—' }}</template>
         </el-table-column>
-        <el-table-column label="型号" min-width="160">
-          <template #default="{ row }">{{ row.mpn || row.product_name || '—' }}</template>
+        <el-table-column label="类型 / 标称值" min-width="160">
+          <template #default="{ row }">
+            <span v-if="row.category">{{ row.category }}</span>
+            <span v-if="row.category && row.value"> · </span>
+            <span v-if="row.value">{{ row.value }}</span>
+            <span v-if="!row.category && !row.value">—</span>
+          </template>
         </el-table-column>
         <el-table-column prop="footprint" label="封装" min-width="140" show-overflow-tooltip />
-        <el-table-column label="状态" width="110">
+        <el-table-column label="料库状态" width="110">
           <template #default="{ row }">
             <el-tag v-if="MATCH_STATUS[row.match_status]" :type="MATCH_STATUS[row.match_status].type">
               {{ MATCH_STATUS[row.match_status].label }}
@@ -141,17 +310,44 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="替换理由" min-width="220">
           <template #default="{ row }">
-            <div>{{ row.reason || '—' }}</div>
+            <div>{{ replacementReason(row) || '—' }}</div>
             <el-tag v-for="risk in row.risks" :key="risk" size="small" type="warning" style="margin: 4px 4px 0 0">{{ risk }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="168" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="canAdopt(row)" link type="primary" @click="adopt(row)">按编号加入物料库</el-button>
+            <div class="ops">
+              <el-button size="small" @click="openCompare(row)">替换</el-button>
+              <el-button v-if="canAccept(row)" size="small" type="primary" @click="acceptSuggestion(row)">使用替换器件</el-button>
+              <el-button v-if="canAdopt(row)" size="small" type="primary" @click="adopt(row)">
+                {{ row.lcsc_code ? '按编号加入' : '加入物料库' }}
+              </el-button>
+              <el-button v-if="row.matched_item_id" size="small" type="success" @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
+              <el-button v-if="row.matched_item_id" size="small" type="danger" @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
     </div>
     <ItemDrawer v-model="drawer" :draft="draft" :boxes="boxes" @saved="rematch" />
+    <CompareDialog
+      v-model="compareVisible"
+      :project-id="project && project.id"
+      :line="compareLine"
+      :item="compareItem"
+      @replaced="applyLine"
+    />
   </div>
 </template>
+
+<style scoped>
+.ops {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.ops :deep(.el-button) {
+  margin-left: 0;
+}
+</style>

@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api'
 import { FORMAT_LABEL, formatDate } from '../format'
 
@@ -20,14 +20,30 @@ async function load() {
   }
 }
 
+async function remove(row) {
+  try {
+    await ElMessageBox.confirm(`删除 ${row.name}？明细会一起删除，物料库不受影响。`, '删除 BOM', { type: 'warning' })
+  } catch {
+    return
+  }
+  await http.delete(`/projects/${row.id}`)
+  ElMessage.success('已删除')
+  await load()
+}
+
 async function upload(option) {
   const body = new FormData()
   body.append('file', option.file)
   uploading.value = true
   try {
-    const { data } = await http.post('/projects/import', body)
-    ElMessage.success('导入完成，已自动匹配')
+    const { data } = await http.post('/projects/import', body, { timeout: 600000 })
+    ElMessage.success('已导入')
+    sessionStorage.setItem('recommend-project', String(data.id))
     router.push(`/projects/${data.id}`)
+  } catch (error) {
+    if (!error.response) {
+      ElMessage.error('导入超时或无法连接服务器')
+    }
   } finally {
     uploading.value = false
   }
@@ -37,9 +53,15 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="stack">
+  <div v-loading="uploading" element-loading-text="正在导入" class="stack">
     <div class="page-card">
-      <el-upload drag :show-file-list="false" accept=".xls,.xlsx" :http-request="upload" :disabled="uploading">
+      <el-upload
+        drag
+        :show-file-list="false"
+        accept=".xls,.xlsx"
+        :http-request="upload"
+        :disabled="uploading"
+      >
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div>将 BOM 拖到此处，或点击上传</div>
         <div class="muted">支持立创 EDA 的 .xlsx 和立创商城报价单 .xls</div>
@@ -57,9 +79,10 @@ onMounted(load)
         <el-table-column label="导入时间" width="170">
           <template #default="{ row }">{{ formatDate(row.imported_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="140">
           <template #default="{ row }">
             <el-button link type="primary" @click="router.push(`/projects/${row.id}`)">查看</el-button>
+            <el-button link type="danger" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
         <template #empty>

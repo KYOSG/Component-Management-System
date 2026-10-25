@@ -231,6 +231,29 @@ class AiTestOut(BaseModel):
     output: str
 
 
+class StockDeltaIn(BaseModel):
+    delta: int
+
+
+class ReplaceIn(BaseModel):
+    item_id: int | None = None
+    lcsc_code: str = ""
+
+
+class LcscCreateIn(BaseModel):
+    lcsc_code: str
+
+
+class BulkAddOut(BaseModel):
+    added: int
+    incremented: int
+
+
+class CheckoutOut(BaseModel):
+    deducted: int
+    skipped: int
+
+
 class AdoptOut(BaseModel):
     lcsc_code: str | None = None
     mpn: str = ""
