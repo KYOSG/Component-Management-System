@@ -9,7 +9,7 @@ from app.deps import get_current_user
 from app.models import Box, Item, ProjectLine, User, utcnow
 from app.schemas import ItemIn, ItemOut, ItemPage, LcscCreateIn
 from app.services.lcsc import LcscError, fetch_lcsc
-from app.services.specs import clean_specs, dump_specs, load_specs
+from app.services.specs import clean_specs, dump_specs, load_specs, present_specs
 from app.services.images import assign_image, delete_item_image, display_image_url
 
 router = APIRouter(prefix="/api/items", tags=["items"])
@@ -31,7 +31,7 @@ def item_out(item: Item, box_name: str | None = None) -> ItemOut:
         category=item.category or "",
         value=item.value or "",
         params=item.params or "",
-        specs=load_specs(item.specs),
+        specs=present_specs(item.category or "", load_specs(item.specs), item.params or ""),
         quantity=item.quantity or 0,
         box_id=item.box_id,
         box_name=box_name,

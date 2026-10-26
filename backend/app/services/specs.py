@@ -16,8 +16,20 @@ SPEC_FIELDS: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
         ("tolerance", "精度", ("精度", "容值精度", "公差", "tolerance", "capacitance tolerance")),
     ],
     "电感": [
-        ("isat", "饱和电流", ("饱和电流", "saturation current", "isat")),
-        ("tolerance", "精度", ("精度", "公差", "tolerance", "inductance tolerance")),
+        (
+            "irms",
+            "温升电流Irms",
+            (
+                "温升电流",
+                "irms",
+                "temperature rise current",
+                "heat rating current",
+                "current rating",
+                "额定电流",
+            ),
+        ),
+        ("isat", "饱和电流Isat", ("饱和电流", "saturation current", "isat")),
+        ("dcr", "直流电阻DCR", ("直流电阻", "dcr", "dc resistance")),
     ],
     "二极管": [
         ("vr", "反向耐压", ("反向耐压", "反向电压", "反向重复峰值电压", "vr", "vrrm", "reverse voltage", "repetitive reverse voltage")),
@@ -117,6 +129,15 @@ def extract_specs(category: str, pairs: list[tuple[str, str]]) -> dict[str, str]
 
 def specs_from_params(category: str, params: str) -> dict[str, str]:
     return extract_specs(category, parse_params(params))
+
+
+def present_specs(category: str, stored: dict[str, str], params: str) -> dict[str, str]:
+    if (category or "").strip() != "电感":
+        return stored
+    merged = dict(stored)
+    for key, value in specs_from_params(category, params).items():
+        merged.setdefault(key, value)
+    return clean_specs(category, merged)
 
 
 def clean_specs(category: str, specs: dict | None) -> dict[str, str]:

@@ -6,7 +6,7 @@ from sqlalchemy.engine import make_url
 from app.database import ensure_sqlite_directory, sqlite_path
 from app.models import Base, Item, User
 from app.security import hash_password
-from app.services.specs import dump_specs, specs_from_params
+from app.services.specs import dump_specs, load_specs, present_specs, specs_from_params
 
 ADMIN_ACCOUNT = "admin"
 ADMIN_PASSWORD = "admin"
@@ -81,10 +81,18 @@ def _backfill_specs(session_factory) -> None:
         changed = False
         for item in items:
             raw = item.specs
-            if raw is not None and str(raw).strip() != "":
+            category = item.category or ""
+            if raw is None or str(raw).strip() == "":
+                item.specs = dump_specs(specs_from_params(category, item.params or ""))
+                changed = True
                 continue
-            item.specs = dump_specs(specs_from_params(item.category or "", item.params or ""))
-            changed = True
+            if category.strip() != "电感":
+                continue
+            stored = load_specs(raw)
+            shown = present_specs(category, stored, item.params or "")
+            if shown != stored:
+                item.specs = dump_specs(shown)
+                changed = True
         if changed:
             db.commit()
     finally:

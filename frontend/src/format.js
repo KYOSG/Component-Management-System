@@ -35,8 +35,9 @@ export const SPEC_FIELDS = {
     { key: 'tolerance', label: '精度' },
   ],
   电感: [
-    { key: 'isat', label: '饱和电流' },
-    { key: 'tolerance', label: '精度' },
+    { key: 'irms', label: '温升电流Irms' },
+    { key: 'isat', label: '饱和电流Isat' },
+    { key: 'dcr', label: '直流电阻DCR' },
   ],
   二极管: [
     { key: 'vr', label: '反向耐压' },
