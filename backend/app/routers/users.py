@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import require_admin
-from app.models import Box, Item, Project, ProjectLine, User
+from app.models import Box, Item, Project, ProjectLine, SpecCategory, User
 from app.routers.auth import _check_password
 from app.schemas import UserOut, UserWrite
 from app.security import hash_password
+from app.services.spec_config import seed_defaults
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -38,6 +39,7 @@ def delete_user_data(db: Session, user: User) -> None:
         db.execute(delete(Project).where(Project.id.in_(project_ids)))
     db.execute(delete(Item).where(Item.user_id == user.id))
     db.execute(delete(Box).where(Box.user_id == user.id))
+    db.execute(delete(SpecCategory).where(SpecCategory.user_id == user.id))
     db.delete(user)
 
 
@@ -56,6 +58,8 @@ def create_user(body: UserWrite, db: Session = Depends(get_db), _admin: User = D
         raise HTTPException(status_code=400, detail="账号已存在")
     user = User(email=account, password_hash=hash_password(body.password), is_admin=body.is_admin)
     db.add(user)
+    db.flush()
+    seed_defaults(db, user.id)
     db.commit()
     db.refresh(user)
     return user

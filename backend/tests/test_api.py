@@ -399,7 +399,7 @@ def test_replace_bom_line_with_library_item_leaves_stock_unchanged(client, monke
     assert stored["quantity"] == 9
     assert stored["mpn"] == "LIB-555"
 
-    def fake_fetch(code):
+    def fake_fetch(code, catalog=None):
         assert code == "C777"
         return {
             "lcsc_code": "C777",
@@ -426,3 +426,103 @@ def test_replace_bom_line_with_library_item_leaves_stock_unchanged(client, monke
     found = client.get("/api/items", params={"q": "2kΩ"})
     assert found.status_code == 200
     assert [row["id"] for row in found.json()["items"]] == [created.json()["id"]]
+
+
+def test_spec_categories_follow_the_user(client):
+    from app.database import SessionLocal
+    from app.models import Item
+
+    register(client, "specs@example.com")
+    listed = client.get("/api/spec-categories")
+    assert listed.status_code == 200, listed.text
+    names = [row["name"] for row in listed.json()]
+    assert names[:6] == ["电阻", "电容", "电感", "二极管", "MOS", "三极管"]
+    resistor = next(row for row in listed.json() if row["name"] == "电阻")
+    assert any(field["key"] == "tolerance" for field in resistor["fields"])
+
+    created = client.post(
+        "/api/items",
+        json={"category": "电阻", "mpn": "R-spec", "params": "精度: ±1%", "quantity": 1},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["specs"]["tolerance"] == "±1%"
+    item_id = created.json()["id"]
+
+    renamed = client.put(
+        f"/api/spec-categories/{resistor['id']}",
+        json={
+            "name": "贴片电阻",
+            "lcsc_keywords": resistor["lcsc_keywords"],
+            "fields": resistor["fields"],
+            "sort_order": resistor["sort_order"],
+        },
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert client.get(f"/api/items/{item_id}").json()["category"] == "贴片电阻"
+
+    unknown = client.post(
+        "/api/items",
+        json={"category": "神秘器件", "mpn": "X", "specs": {"foo": "1"}, "quantity": 0},
+    )
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["specs"] == {}
+
+    rejected = client.post(
+        "/api/spec-categories",
+        json={"name": "坏类目", "fields": [{"key": "pkg", "label": "封装", "type": "select", "options": []}]},
+    )
+    assert rejected.status_code == 422
+
+    crystal = client.post(
+        "/api/spec-categories",
+        json={
+            "name": "晶振",
+            "lcsc_keywords": ["crystal"],
+            "fields": [
+                {"key": "freq", "label": "频率", "type": "number", "unit": "MHz", "required": True, "aliases": ["频率"]},
+                {"key": "pkg", "label": "封装类型", "type": "select", "options": ["贴片", "插件"], "aliases": ["封装类型"]},
+            ],
+        },
+    )
+    assert crystal.status_code == 200, crystal.text
+    crystal_id = crystal.json()["id"]
+
+    missing = client.post("/api/items", json={"category": "晶振", "mpn": "Y1", "specs": {"pkg": "贴片"}, "quantity": 0})
+    assert missing.status_code == 400
+    assert "请填写频率" in missing.json()["detail"]
+    bad_number = client.post(
+        "/api/items",
+        json={"category": "晶振", "mpn": "Y2", "specs": {"freq": "快", "pkg": "贴片"}, "quantity": 0},
+    )
+    assert bad_number.status_code == 400
+    assert "频率需要是数字" in bad_number.json()["detail"]
+    bad_option = client.post(
+        "/api/items",
+        json={"category": "晶振", "mpn": "Y3", "specs": {"freq": "8", "pkg": "轴向"}, "quantity": 0},
+    )
+    assert bad_option.status_code == 400
+    assert "封装类型不在可选项内" in bad_option.json()["detail"]
+    good = client.post(
+        "/api/items",
+        json={"category": "晶振", "mpn": "Y4", "specs": {"freq": "8MHz", "pkg": "贴片"}, "quantity": 2},
+    )
+    assert good.status_code == 200, good.text
+    assert good.json()["specs"] == {"freq": "8", "pkg": "贴片"}
+
+    with TestClient(app) as other:
+        register(other, "specs-other@example.com")
+        other_names = [row["name"] for row in other.get("/api/spec-categories").json()]
+        assert "晶振" not in other_names
+        assert "贴片电阻" not in other_names
+        assert "电阻" in other_names
+
+    removed = client.delete(f"/api/spec-categories/{crystal_id}")
+    assert removed.status_code == 200, removed.text
+    kept = client.get(f"/api/items/{good.json()['id']}").json()
+    assert kept["category"] == "晶振"
+    assert kept["specs"] == {}
+    db = SessionLocal()
+    try:
+        assert "freq" in (db.get(Item, good.json()["id"]).specs or "")
+    finally:
+        db.close()

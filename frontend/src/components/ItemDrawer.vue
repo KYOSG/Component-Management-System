@@ -1,8 +1,9 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api'
-import { itemPayload, specFields } from '../format'
+import { itemPayload } from '../format'
+import { categoryNames, loadCatalog, specFields, specValueOk } from '../specCatalog'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -36,17 +37,37 @@ const form = reactive(empty())
 const querying = ref(false)
 const saving = ref(false)
 const hint = ref('')
+const hydrating = ref(false)
 
 const currentBox = computed(() => props.boxes.find((box) => box.id === form.box_id) || null)
 const title = computed(() => (form.id ? '编辑物料' : '新增物料'))
+const names = computed(() => categoryNames())
+const fields = computed(() => specFields(form.category))
 
 watch(
   () => props.modelValue,
-  (open) => {
+  async (open) => {
     if (!open) return
+    hydrating.value = true
+    await loadCatalog()
     Object.assign(form, empty(), props.item?.id ? props.item : props.draft || {})
     form.specs = { ...(form.specs || {}) }
     hint.value = ''
+    await nextTick()
+    hydrating.value = false
+  },
+)
+
+watch(
+  () => form.category,
+  (category) => {
+    if (hydrating.value) return
+    const allowed = new Set(specFields(category).map((field) => field.key))
+    const specs = {}
+    Object.entries(form.specs || {}).forEach(([key, value]) => {
+      if (allowed.has(key)) specs[key] = value
+    })
+    form.specs = specs
   },
 )
 
@@ -99,6 +120,17 @@ async function save() {
     ElMessage.warning('放入物料盒时需要填写行和列')
     return
   }
+  for (const field of fields.value) {
+    const value = form.specs[field.key]
+    if (field.required && !String(value || '').trim()) {
+      ElMessage.warning(`请填写${field.label}`)
+      return
+    }
+    if (String(value || '').trim() && !specValueOk(field, value)) {
+      ElMessage.warning(field.type === 'select' ? `${field.label}不在可选项内` : `${field.label}需要是数字`)
+      return
+    }
+  }
   saving.value = true
   try {
     const payload = itemPayload(form)
@@ -140,13 +172,34 @@ async function save() {
         <el-input v-model="form.footprint" />
       </el-form-item>
       <el-form-item label="类目">
-        <el-input v-model="form.category" placeholder="电阻、电容" />
+        <el-select
+          v-model="form.category"
+          filterable
+          allow-create
+          default-first-option
+          clearable
+          placeholder="选择或输入类目"
+          style="width: 100%"
+        >
+          <el-option v-for="name in names" :key="name" :label="name" :value="name" />
+        </el-select>
       </el-form-item>
       <el-form-item label="标称值">
         <el-input v-model="form.value" placeholder="5.1kΩ、4.7uF" />
       </el-form-item>
-      <el-form-item v-for="field in specFields(form.category)" :key="field.key" :label="field.label">
-        <el-input v-model="form.specs[field.key]" />
+      <el-form-item v-for="field in fields" :key="field.key" :label="field.label" :required="field.required">
+        <el-select
+          v-if="field.type === 'select'"
+          v-model="form.specs[field.key]"
+          clearable
+          filterable
+          style="width: 100%"
+        >
+          <el-option v-for="option in field.options" :key="option" :label="option" :value="option" />
+        </el-select>
+        <el-input v-else v-model="form.specs[field.key]">
+          <template v-if="field.type === 'number' && field.unit" #append>{{ field.unit }}</template>
+        </el-input>
       </el-form-item>
       <el-form-item label="参数">
         <el-input v-model="form.params" type="textarea" :rows="4" />

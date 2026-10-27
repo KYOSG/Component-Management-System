@@ -32,6 +32,20 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class SpecCategory(Base):
+    __tablename__ = "spec_categories"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_spec_category_user_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    lcsc_keywords: Mapped[str] = mapped_column(Text, default="[]")
+    fields: Mapped[str] = mapped_column(Text, default="[]")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Box(Base):
     __tablename__ = "boxes"
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_box_user_name"),)

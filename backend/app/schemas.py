@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_FIELD_KEY = re.compile(r"^[a-z0-9_]{1,32}$")
+_FIELD_TYPES = {"text", "number", "select"}
 
 
 class ORMModel(BaseModel):
@@ -274,3 +278,124 @@ class AdoptOut(BaseModel):
     mall_stock: int | None = None
     mall_price: str = ""
     warning: str = ""
+
+
+def _text_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = re.split(r"[,，]", value)
+    if not isinstance(value, list):
+        return []
+    output: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in output:
+            output.append(text)
+    return output
+
+
+class SpecFieldIn(BaseModel):
+    key: str
+    label: str
+    type: str = "text"
+    unit: str = ""
+    options: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    required: bool = False
+
+    @field_validator("key")
+    @classmethod
+    def key_format(cls, value: str) -> str:
+        text = value.strip().lower()
+        if _FIELD_KEY.fullmatch(text) is None:
+            raise ValueError("字段键名只能使用小写字母、数字和下划线，最长 32 位")
+        return text
+
+    @field_validator("label")
+    @classmethod
+    def label_text(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("请填写字段显示名")
+        if len(text) > 64:
+            raise ValueError("字段显示名过长")
+        return text
+
+    @field_validator("type")
+    @classmethod
+    def type_name(cls, value: str) -> str:
+        text = (value or "text").strip()
+        if text not in _FIELD_TYPES:
+            raise ValueError("字段类型只能是 text、number 或 select")
+        return text
+
+    @field_validator("unit")
+    @classmethod
+    def unit_text(cls, value: str) -> str:
+        text = (value or "").strip()
+        if len(text) > 16:
+            raise ValueError("单位过长")
+        return text
+
+    @field_validator("options", "aliases", mode="before")
+    @classmethod
+    def as_text_list(cls, value):
+        return _text_list(value)
+
+    @model_validator(mode="after")
+    def check_field(self):
+        if self.type == "select" and not self.options:
+            raise ValueError("字典字段需要至少一个选项")
+        if not self.aliases:
+            self.aliases = [self.label]
+        return self
+
+
+class SpecCategoryIn(BaseModel):
+    name: str
+    lcsc_keywords: list[str] = Field(default_factory=list)
+    fields: list[SpecFieldIn] = Field(default_factory=list)
+    sort_order: int | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_text(cls, value: str) -> str:
+        text = value.strip()
+        if not text:
+            raise ValueError("请填写类目名称")
+        if len(text) > 120:
+            raise ValueError("类目名称过长")
+        return text
+
+    @field_validator("lcsc_keywords", mode="before")
+    @classmethod
+    def keyword_list(cls, value):
+        return _text_list(value)
+
+    @model_validator(mode="after")
+    def unique_keys(self):
+        keys = [field.key for field in self.fields]
+        if len(keys) != len(set(keys)):
+            raise ValueError("同一类目的字段键名不能重复")
+        return self
+
+
+class SpecFieldOut(BaseModel):
+    key: str
+    label: str
+    type: str
+    unit: str = ""
+    options: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    required: bool = False
+
+
+class SpecCategoryOut(BaseModel):
+    id: int
+    name: str
+    lcsc_keywords: list[str]
+    fields: list[SpecFieldOut]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime

@@ -75,7 +75,7 @@ def test_easyeda_supplier_part_is_lcsc_code():
 def test_enrich_uses_lcsc_fields_and_keeps_original_on_failure(monkeypatch):
     from app.routers.projects import _enrich_lines
 
-    def fake_fetch(code):
+    def fake_fetch(code, catalog=None):
         if code == "C-FAIL":
             raise RuntimeError("offline")
         return {

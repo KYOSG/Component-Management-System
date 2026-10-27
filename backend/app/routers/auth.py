@@ -12,6 +12,7 @@ from app.deps import get_current_user
 from app.models import User
 from app.schemas import AuthIn, UserOut
 from app.security import hash_password, sign_session, verify_password
+from app.services.spec_config import seed_defaults
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -48,6 +49,8 @@ def register(body: AuthIn, response: Response, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=400, detail="邮箱已注册")
     user = User(email=email, password_hash=hash_password(body.password))
     db.add(user)
+    db.flush()
+    seed_defaults(db, user.id)
     db.commit()
     db.refresh(user)
     _set_session(response, user.id)

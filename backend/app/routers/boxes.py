@@ -11,6 +11,7 @@ from app.deps import get_current_user
 from app.models import Box, Item, Project, ProjectLine, User, utcnow
 from app.routers.items import item_out
 from app.schemas import BoxIn, BoxOut, BoxMapOut, CellOut, MapOut, MapStats
+from app.services.spec_config import load_catalog
 
 router = APIRouter(tags=["boxes"])
 
@@ -110,6 +111,7 @@ def inventory_map(
         .where(Item.user_id == user.id)
         .order_by(Item.id)
     ).all()
+    catalog = load_catalog(db, user.id)
     items = [(item, box_name) for item, box_name in rows]
     categories = sorted({item.category for item, _name in items if item.category})
     selected = category.strip()
@@ -137,14 +139,14 @@ def inventory_map(
         if item.box_id in by_box:
             by_box[item.box_id].append((item, box_name))
         else:
-            unboxed.append(item_out(item, None))
+            unboxed.append(item_out(item, None, catalog))
 
     box_maps: list[BoxMapOut] = []
     for box in boxes:
         placed: dict[tuple[int, int], ItemOut] = {}
         invalid = []
         for item, box_name in by_box[box.id]:
-            view = item_out(item, box_name)
+            view = item_out(item, box_name, catalog)
             if item.row is None or item.col is None or item.row < 1 or item.col < 1 or item.row > box.rows or item.col > box.cols:
                 invalid.append(view)
                 continue

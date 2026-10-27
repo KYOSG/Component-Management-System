@@ -3,7 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import http from '../api'
-import { cellText, filledSpecs, itemPayload } from '../format'
+import { cellText, itemPayload } from '../format'
+import { catalogState, filledSpecs, loadCatalog } from '../specCatalog'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
 const route = useRoute()
@@ -65,9 +66,15 @@ async function loadProjects() {
   projects.value = data
 }
 
+function cellSpecs(item) {
+  void catalogState.categories
+  return filledSpecs(item)
+}
+
 async function load() {
   loading.value = true
   try {
+    await loadCatalog(true)
     const params = {}
     if (category.value) params.category = category.value
     if (projectId.value) params.project_id = projectId.value
@@ -231,7 +238,7 @@ onMounted(async () => {
                     <div v-if="cell.item && !cell.dimmed" class="cell-body">
                       <span class="meta">{{ cell.item.footprint || '—' }}</span>
                       <span class="meta">{{ cell.item.value || '—' }}</span>
-                      <span v-for="field in filledSpecs(cell.item)" :key="field.key" class="meta">{{ field.label }} {{ field.value }}</span>
+                      <span v-for="field in cellSpecs(cell.item)" :key="field.key" class="meta">{{ field.label }} {{ field.value }}</span>
                       <span v-if="marks(cell.item).length" class="mark">{{ marks(cell.item).join(' ') }}</span>
                     </div>
                     <div v-else class="cell-body">
@@ -280,6 +287,14 @@ onMounted(async () => {
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="footprint" label="封装" width="120" />
           <el-table-column prop="category" label="类目" width="100" />
+          <el-table-column label="参数" min-width="180">
+            <template #default="{ row }">
+              <template v-if="cellSpecs(row).length">
+                <div v-for="field in cellSpecs(row)" :key="field.key">{{ field.label }} {{ field.value }}</div>
+              </template>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="quantity" label="库存" width="80" />
           <template #empty>
             <el-empty description="没有未入盒物料" />
@@ -311,7 +326,7 @@ onMounted(async () => {
           <el-descriptions-item label="封装">{{ activeCell.item.footprint || '—' }}</el-descriptions-item>
           <el-descriptions-item label="类目">{{ activeCell.item.category || '—' }}</el-descriptions-item>
           <el-descriptions-item label="标称值">{{ activeCell.item.value || '—' }}</el-descriptions-item>
-          <el-descriptions-item v-for="field in filledSpecs(activeCell.item)" :key="field.key" :label="field.label">{{ field.value }}</el-descriptions-item>
+          <el-descriptions-item v-for="field in cellSpecs(activeCell.item)" :key="field.key" :label="field.label">{{ field.value }}</el-descriptions-item>
           <el-descriptions-item label="库存">{{ activeCell.item.quantity }}</el-descriptions-item>
           <el-descriptions-item v-if="marks(activeCell.item).length" label="位号">{{ marks(activeCell.item).join('、') }}</el-descriptions-item>
         </el-descriptions>

@@ -2,7 +2,8 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import http from '../api'
-import { cellText, filledSpecs } from '../format'
+import { cellText } from '../format'
+import { filledSpecs, loadCatalog } from '../specCatalog'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
 const loading = ref(false)
@@ -30,6 +31,7 @@ async function loadBoxes() {
 async function load() {
   loading.value = true
   try {
+    await loadCatalog(true)
     const { data } = await http.get('/items', { params: filters })
     rows.value = data.items
     total.value = data.total

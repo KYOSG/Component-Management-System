@@ -6,7 +6,8 @@ from sqlalchemy.engine import make_url
 from app.database import ensure_sqlite_directory, sqlite_path
 from app.models import Base, Item, User
 from app.security import hash_password
-from app.services.specs import dump_specs, load_specs, present_specs, specs_from_params
+from app.services.spec_config import load_catalog, seed_defaults
+from app.services.specs import dump_specs, load_specs, parse_params
 
 ADMIN_ACCOUNT = "admin"
 ADMIN_PASSWORD = "admin"
@@ -63,7 +64,7 @@ def _ensure_is_admin_column(bind) -> None:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
 
 
-def _ensure_specs_column(bind, session_factory) -> None:
+def _ensure_specs_column(bind) -> None:
     inspector = inspect(bind)
     if "items" not in inspector.get_table_names():
         return
@@ -71,25 +72,28 @@ def _ensure_specs_column(bind, session_factory) -> None:
     if "specs" not in names:
         with bind.begin() as conn:
             conn.execute(text("ALTER TABLE items ADD COLUMN specs TEXT"))
-    _backfill_specs(session_factory)
 
 
 def _backfill_specs(session_factory) -> None:
     db = session_factory()
     try:
         items = db.scalars(select(Item)).all()
+        catalogs = {}
         changed = False
         for item in items:
+            catalog = catalogs.get(item.user_id)
+            if catalog is None:
+                catalog = load_catalog(db, item.user_id)
+                catalogs[item.user_id] = catalog
             raw = item.specs
             category = item.category or ""
+            params = item.params or ""
             if raw is None or str(raw).strip() == "":
-                item.specs = dump_specs(specs_from_params(category, item.params or ""))
+                item.specs = dump_specs(catalog.extract(category, parse_params(params)))
                 changed = True
                 continue
-            if category.strip() != "电感":
-                continue
             stored = load_specs(raw)
-            shown = present_specs(category, stored, item.params or "")
+            shown = catalog.present(category, stored, params)
             if shown != stored:
                 item.specs = dump_specs(shown)
                 changed = True
@@ -105,13 +109,25 @@ def _seed_admin(session_factory) -> None:
         exists = db.scalar(select(User.id).where(User.email == ADMIN_ACCOUNT))
         if exists:
             return
-        db.add(
-            User(
-                email=ADMIN_ACCOUNT,
-                password_hash=hash_password(ADMIN_PASSWORD),
-                is_admin=True,
-            )
+        user = User(
+            email=ADMIN_ACCOUNT,
+            password_hash=hash_password(ADMIN_PASSWORD),
+            is_admin=True,
         )
+        db.add(user)
+        db.flush()
+        seed_defaults(db, user.id)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _seed_missing_catalogs(session_factory) -> None:
+    db = session_factory()
+    try:
+        user_ids = list(db.scalars(select(User.id)).all())
+        for user_id in user_ids:
+            seed_defaults(db, user_id)
         db.commit()
     finally:
         db.close()
@@ -119,15 +135,19 @@ def _seed_admin(session_factory) -> None:
 
 def prepare_connection(bind, session_factory, url: str) -> None:
     fresh = not database_exists(url)
+    categories_existed = "spec_categories" in inspect(bind).get_table_names() if not fresh else False
     if url.startswith("sqlite"):
         ensure_sqlite_directory(url)
     elif url.startswith("mysql") and fresh:
         _create_mysql_database(url)
     Base.metadata.create_all(bind)
     _ensure_is_admin_column(bind)
-    _ensure_specs_column(bind, session_factory)
+    _ensure_specs_column(bind)
     if fresh or _admin_account_missing(session_factory):
         _seed_admin(session_factory)
+    if not categories_existed:
+        _seed_missing_catalogs(session_factory)
+    _backfill_specs(session_factory)
     from app.services.images import cache_remote_item_images
     from app.services.system_config import ensure_settings
 

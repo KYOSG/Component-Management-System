@@ -1,4 +1,5 @@
 from app.services.lcsc import fetch_lcsc, map_product
+from app.services.specs import default_catalog
 
 
 def test_map_product_fields():
@@ -19,7 +20,8 @@ def test_map_product_fields():
                 {"paramName": "阻值", "paramValue": "5.1kΩ"},
                 {"paramName": "功率", "paramValue": "100mW"},
             ],
-        }
+        },
+        default_catalog(),
     )
     assert mapped["mpn"] == "RC0603FR-075K1L"
     assert mapped["brand"] == "YAGEO"
@@ -45,7 +47,8 @@ def test_map_inductor_specs():
                 {"paramName": "饱和电流(Isat)", "paramNameEn": "Current - Saturation(Isat)", "paramValue": "4.5A"},
                 {"paramName": "直流电阻(DCR)", "paramNameEn": "DC Resistance(DCR)", "paramValue": "39mΩ"},
             ],
-        }
+        },
+        default_catalog(),
     )
     assert mapped["category"] == "电感"
     assert mapped["value"] == "470nH"
@@ -53,7 +56,7 @@ def test_map_inductor_specs():
 
 
 def test_live_c105580():
-    info = fetch_lcsc("C105580")
+    info = fetch_lcsc("C105580", default_catalog())
     assert info["mpn"] == "RC0603FR-075K1L"
     assert info["brand"] == "YAGEO"
     assert info["footprint"] == "0603"

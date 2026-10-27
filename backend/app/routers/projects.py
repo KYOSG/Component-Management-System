@@ -23,7 +23,8 @@ from app.services.deepseek import AiRun
 from app.services.match import footprint_main, norm_value
 from app.services.matching import apply_match, recommend_pending
 from app.services.system_config import read_settings
-from app.services.specs import specs_from_params
+from app.services.spec_config import load_catalog
+from app.services.specs import SpecCatalog, default_catalog, dump_specs, parse_params
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -94,12 +95,13 @@ def project_out(db: Session, project: Project) -> ProjectOut:
     )
 
 
-def _enrich_lines(lines: list[ParsedLine]) -> None:
+def _enrich_lines(lines: list[ParsedLine], catalog: SpecCatalog | None = None) -> None:
+    catalog = default_catalog() if catalog is None else catalog
     targets = [line for line in lines if line.needs_lcsc_enrich and line.lcsc_code]
     if not targets:
         return
     with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
-        futures = {pool.submit(fetch_lcsc, line.lcsc_code): line for line in targets}
+        futures = {pool.submit(fetch_lcsc, line.lcsc_code, catalog): line for line in targets}
         for future in as_completed(futures):
             line = futures[future]
             try:
@@ -272,7 +274,7 @@ def import_project(
         parsed = parse_upload(filename, data)
     except BomError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _enrich_lines(parsed.lines)
+    _enrich_lines(parsed.lines, load_catalog(db, user.id))
     project = Project(
         user_id=user.id,
         name=parsed.name,
@@ -470,10 +472,11 @@ def replace_line(
         code = (body.lcsc_code or "").strip()
         if not code:
             raise HTTPException(status_code=400, detail="请选择库中物料或填写立创编号")
+        catalog = load_catalog(db, user.id)
         item = db.scalar(select(Item).where(Item.user_id == user.id, func.lower(Item.lcsc_code) == code.lower()))
         if item is None:
             try:
-                info = fetch_lcsc(code)
+                info = fetch_lcsc(code, catalog)
             except LcscError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             item = Item(
@@ -486,7 +489,7 @@ def replace_line(
                 category=info.get("category") or "",
                 value=info.get("value") or "",
                 params=info.get("params") or "",
-                specs=json.dumps(specs_from_params(info.get("category") or "", info.get("params") or ""), ensure_ascii=False),
+                specs=dump_specs(catalog.extract(info.get("category") or "", parse_params(info.get("params") or ""))),
                 datasheet_url=info.get("datasheet_url") or "",
                 quantity=0,
             )
@@ -554,9 +557,10 @@ def adopt_line(
         raise HTTPException(status_code=404, detail="明细不存在")
     if not (line.lcsc_code or "").strip():
         raise HTTPException(status_code=400, detail="该明细没有立创编号")
+    catalog = load_catalog(db, user.id)
     warning = ""
     try:
-        info = fetch_lcsc(line.lcsc_code)
+        info = fetch_lcsc(line.lcsc_code, catalog)
     except LcscError:
         info = {
             "lcsc_code": line.lcsc_code,
@@ -567,7 +571,7 @@ def adopt_line(
             "category": line.category,
             "value": line.value,
             "params": line.params,
-            "specs": specs_from_params(line.category or "", line.params or ""),
+            "specs": catalog.extract(line.category or "", parse_params(line.params or "")),
             "datasheet_url": "",
             "image_url": "",
             "mall_stock": None,

@@ -2,36 +2,17 @@ from __future__ import annotations
 
 import httpx
 
-from app.services.specs import extract_specs
+from app.services.specs import SpecCatalog
 
 
 class LcscError(Exception):
     pass
 
 
-CATEGORY_RULES = (
-    ("电阻", ("resistor", "电阻")),
-    ("电容", ("capacitor", "电容")),
-    ("电感", ("inductor", "电感")),
-    ("二极管", ("diode", "二极管")),
-    ("MOS", ("mosfet", "mos管", "mos")),
-    ("三极管", ("transistor", "三极管")),
-    ("连接器", ("connector", "连接器")),
-    ("电源", ("power management", "电源")),
-)
-
 VALUE_NAMES = {"阻值", "容值", "电感量", "电感值", "resistance", "capacitance", "inductance"}
 
 
-def map_category(parent: str, catalog: str) -> str:
-    blob = f"{parent} {catalog}".lower()
-    for label, keys in CATEGORY_RULES:
-        if any(key.lower() in blob for key in keys):
-            return label
-    return catalog or parent or ""
-
-
-def map_product(result: dict) -> dict:
+def map_product(result: dict, catalog: SpecCatalog) -> dict:
     parts: list[str] = []
     pairs: list[tuple[str, str]] = []
     value = ""
@@ -43,7 +24,7 @@ def map_product(result: dict) -> dict:
             pairs.append((name, param_value))
         if name.lower() in VALUE_NAMES and param_value:
             value = param_value
-    category = map_category(result.get("parentCatalogName") or "", result.get("catalogName") or "")
+    category = catalog.map_category(result.get("parentCatalogName") or "", result.get("catalogName") or "")
     images = result.get("productImages") or []
     image_url = images[0] if images and isinstance(images[0], str) else ""
     prices = result.get("productPriceList") or []
@@ -60,7 +41,7 @@ def map_product(result: dict) -> dict:
         "category": category,
         "value": value,
         "params": "；".join(parts),
-        "specs": extract_specs(category, pairs),
+        "specs": catalog.extract(category, pairs),
         "datasheet_url": result.get("pdfUrl") or "",
         "image_url": image_url,
         "mall_stock": result.get("stockNumber"),
@@ -68,7 +49,7 @@ def map_product(result: dict) -> dict:
     }
 
 
-def fetch_lcsc(code: str) -> dict:
+def fetch_lcsc(code: str, catalog: SpecCatalog) -> dict:
     product_code = (code or "").strip()
     if not product_code:
         raise LcscError("查询失败，请手填")
@@ -83,7 +64,7 @@ def fetch_lcsc(code: str) -> dict:
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(result, dict) or not result.get("productCode"):
         raise LcscError("查询失败，请手填")
-    mapped = map_product(result)
+    mapped = map_product(result, catalog)
     mapped["lcsc_code"] = mapped["lcsc_code"] or product_code
     from app.services.images import localize, safe_stem
 

@@ -11,6 +11,7 @@ const isAdmin = ref(false)
 const active = computed(() => {
   if (route.path.startsWith('/projects')) return '/projects'
   if (route.path.startsWith('/users')) return '/users'
+  if (route.path.startsWith('/settings/categories')) return '/settings/categories'
   if (route.path.startsWith('/settings')) return '/settings'
   return route.path
 })
@@ -33,7 +34,7 @@ async function logout() {
   <el-container class="shell">
     <el-aside class="aside" width="220px">
       <div class="brand">物品映射</div>
-      <el-menu :default-active="active" router>
+      <el-menu :key="isAdmin ? 'admin' : 'user'" :default-active="active" :default-openeds="['settings']" router>
         <el-menu-item index="/items">
           <el-icon><Goods /></el-icon>
           <span>物料库</span>
@@ -50,10 +51,14 @@ async function logout() {
           <el-icon><User /></el-icon>
           <span>账户管理</span>
         </el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/settings">
-          <el-icon><Setting /></el-icon>
-          <span>系统配置</span>
-        </el-menu-item>
+        <el-sub-menu v-if="isAdmin" index="settings">
+          <template #title>
+            <el-icon><Setting /></el-icon>
+            <span>系统配置</span>
+          </template>
+          <el-menu-item index="/settings">基本设置</el-menu-item>
+          <el-menu-item index="/settings/categories">参数配置</el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
     <el-container>
