@@ -31,16 +31,48 @@ npm install
 在项目根目录准备 `.env`（可从 `.env.example` 复制），然后：
 
 ```powershell
-docker compose up -d
+docker compose up -d --build
 ```
 
-浏览器打开 `http://localhost:8000`。SQLite 数据库在数据卷 `/data/app.db`。
+浏览器打开 `http://localhost:8000`。SQLite 数据库和物料图片都在数据卷 `/data` 里。
 
-改用 MySQL 时设置：
+## 服务器部署包
 
-```text
-DATABASE_URL=mysql+pymysql://user:password@host:3306/cms?charset=utf8mb4
+在开发机项目根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\pack.ps1
 ```
+
+得到 `release\cms-deploy.zip`。上传到 Linux 服务器后：
+
+```bash
+unzip cms-deploy.zip -d cms
+cd cms
+chmod +x deploy/up.sh
+./deploy/up.sh
+```
+
+脚本会在没有 `.env` 时自动生成，并写入随机 `SECRET_KEY`。浏览器打开 `http://服务器IP:8000`。首次启动的管理员账号是 `admin` / `admin`，登录后请立刻修改。
+
+服务器需要已安装 Docker Engine 和 Compose 插件，并且第一次构建时能访问 Docker Hub、npm 和 PyPI。数据库在名为 `cms-data` 的卷里，重新构建镜像不会清掉已有数据。
+
+## 1Panel
+
+页面和接口打在同一个目录里，由一个 Python 进程一起提供。在开发机执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\pack-1panel.ps1
+```
+
+得到 `release\cms-1panel.zip`。上传到 1Panel 所在服务器并解压，然后在「网站 → 运行环境」里创建 Python 3.11 或 3.12 环境：
+
+- 运行目录：解压后的目录
+- 应用端口：`8000`
+- 启动命令：`pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple && python run.py`
+
+启动后，用这个运行环境创建网站。没有域名时打开端口外部访问，浏览器打开 `http://服务器IP:8000`。详细步骤在压缩包里的 `DEPLOY.txt`。
+
 
 ## 环境变量
 

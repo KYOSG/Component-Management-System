@@ -289,7 +289,7 @@ onMounted(() => load())
             placeholder="输入后回车，例如 resistor"
             style="width: 100%"
           />
-          <div class="muted">立创查询时，目录名包含这些词就归入此类目。列表中靠前的类目优先匹配。物料盒格子按下面的字段显示已填写的参数。</div>
+          <div class="muted">立创查询时，只看最后一级目录名。目录名包含这些词就归入此类目，列表中靠前的类目优先匹配。物料盒格子按下面的字段显示已填写的参数。</div>
         </el-form-item>
       </el-form>
       <div class="toolbar">

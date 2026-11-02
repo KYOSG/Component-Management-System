@@ -68,7 +68,7 @@ _DEFAULT_FIELDS: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
     ],
 }
 
-# 立创目录名归类用的关键词。连接器和电源没有结构化字段，只参与归类。
+# 只用立创最后一级目录名归类，不看父目录。连接器和电源没有结构化字段，只参与归类。
 _DEFAULT_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("电阻", ("resistor", "电阻")),
     ("电容", ("capacitor", "电容")),
@@ -143,12 +143,13 @@ class SpecCatalog:
         found = self._by_name.get((category or "").strip())
         return found.fields if found else ()
 
-    def map_category(self, parent: str, catalog: str) -> str:
-        blob = f"{parent} {catalog}".lower()
-        for category in self.categories:
-            if any(keyword.lower() in blob for keyword in category.lcsc_keywords if keyword):
-                return category.name
-        return catalog or parent or ""
+    def map_category(self, catalog: str) -> str:
+        blob = (catalog or "").strip().lower()
+        if blob:
+            for category in self.categories:
+                if any(keyword.lower() in blob for keyword in category.lcsc_keywords if keyword):
+                    return category.name
+        return (catalog or "").strip()
 
     def extract(self, category: str, pairs: list[tuple[str, str]]) -> dict[str, str]:
         return self.clean(category, self._match(category, pairs), strict=False)

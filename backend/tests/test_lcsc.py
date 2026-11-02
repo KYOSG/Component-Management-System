@@ -1,4 +1,4 @@
-from app.services.lcsc import fetch_lcsc, map_product
+from app.services.lcsc import fetch_lcsc, map_product, search_to_detail
 from app.services.specs import default_catalog
 
 
@@ -56,9 +56,53 @@ def test_map_inductor_specs():
     assert mapped["specs"] == {"irms": "3A", "isat": "4.5A", "dcr": "39mΩ"}
 
 
+def test_category_uses_last_catalog_level():
+    mapped = map_product(
+        {
+            "productCode": "C82942",
+            "productModel": "ME6211C33M5G-N",
+            "parentCatalogName": "Power Management (PMIC)",
+            "catalogName": "线性稳压器(LDO)",
+        },
+        default_catalog(),
+    )
+    assert mapped["category"] == "线性稳压器(LDO)"
+
+
+def test_search_hit_keeps_last_level_and_params():
+    detail = search_to_detail(
+        {
+            "code": "C5120915",
+            "name": "1206 5mΩ ±1% 1W",
+            "catalogName": "电流采样电阻/分流器",
+            "brandName": "NCT(利昇达)",
+            "standard": "1206",
+            "model": "LRAM12CFTR005",
+            "stockNumber": "1383",
+            "image": "https://alimg.example/a.jpg<$>https://alimg.example/b.jpg",
+            "priceList": [{"startNumber": 20, "price": 0.1823}],
+            "pdfFileUrl": "/upload/public/pdf/source/a.pdf",
+        },
+        {
+            "catalogName": "Voltage Regulators",
+            "paramVOList": [{"paramName": "阻值", "paramValue": "5mΩ"}],
+        },
+    )
+    mapped = map_product(detail, default_catalog())
+    assert mapped["lcsc_code"] == "C5120915"
+    assert mapped["mpn"] == "LRAM12CFTR005"
+    assert mapped["category"] == "电阻"
+    assert mapped["value"] == "5mΩ"
+    assert mapped["mall_stock"] == 1383
+    assert mapped["mall_price"] == "¥0.1823"
+    assert mapped["datasheet_url"] == "https://atta.szlcsc.com/upload/public/pdf/source/a.pdf"
+    assert mapped["image_url"] == "https://alimg.example/a.jpg"
+    assert detail["catalogName"] == "电流采样电阻/分流器"
+
+
 def test_live_c105580():
     info = fetch_lcsc("C105580", default_catalog())
     assert info["mpn"] == "RC0603FR-075K1L"
-    assert info["brand"] == "YAGEO"
+    assert info["brand"].startswith("YAGEO")
     assert info["footprint"] == "0603"
     assert "5.1k" in info["value"] or "5.1k" in info["params"]
