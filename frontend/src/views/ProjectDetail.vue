@@ -126,7 +126,7 @@ async function saveSets(value) {
     committedSets.value = data.purchase_sets
     project.value = data
     if (needsRecommend(data)) startRecommend()
-    else ElMessage.success('已更新采购套数')
+    else ElMessage.success('已更新套数')
   } catch {
     await load()
   } finally {
@@ -176,6 +176,18 @@ async function addAll() {
   const { data } = await http.post(`/projects/${route.params.id}/add-all`)
   ElMessage.success(`已加入 ${data.added} 个，增量 ${data.incremented} 个`)
   await load()
+}
+
+async function checkoutLine(row) {
+  const name = row.mpn || row.lcsc_code || row.value || '该物料'
+  try {
+    await ElMessageBox.confirm(`出库 ${row.quantity_required} 个「${name}」？会计入消耗统计。`, '出库', { type: 'warning' })
+  } catch {
+    return
+  }
+  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/checkout`)
+  applyLine(data)
+  ElMessage.success('已出库')
 }
 
 async function checkout() {
@@ -250,7 +262,7 @@ onBeforeUnmount(() => {
         <el-descriptions-item label="名称">{{ project.name }}</el-descriptions-item>
         <el-descriptions-item label="格式">{{ FORMAT_LABEL[project.format] || project.format }}</el-descriptions-item>
         <el-descriptions-item label="来源文件">{{ project.source_filename }}</el-descriptions-item>
-        <el-descriptions-item label="采购套数">
+        <el-descriptions-item label="套数">
           <el-input-number
             v-model="project.purchase_sets"
             :min="1"
@@ -314,7 +326,7 @@ onBeforeUnmount(() => {
             <el-tag v-for="risk in row.risks" :key="risk" size="small" type="warning" style="margin: 4px 4px 0 0">{{ risk }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="168" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <el-button size="small" @click="openCompare(row)">替换</el-button>
@@ -322,6 +334,7 @@ onBeforeUnmount(() => {
               <el-button v-if="canAdopt(row)" size="small" type="primary" @click="adopt(row)">
                 {{ row.lcsc_code ? '按编号加入' : '加入物料库' }}
               </el-button>
+              <el-button v-if="row.matched_item_id" size="small" type="warning" @click="checkoutLine(row)">出库</el-button>
               <el-button v-if="row.matched_item_id" size="small" type="success" @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
               <el-button v-if="row.matched_item_id" size="small" type="danger" @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
             </div>

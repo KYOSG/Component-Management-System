@@ -52,16 +52,28 @@ class UserWrite(BaseModel):
 
 class BoxIn(BaseModel):
     name: str
-    rows: int
-    cols: int
+    box_type: str = "grid"
+    rows: int = 0
+    cols: int = 0
+    slot_count: int = 0
     remark: str = ""
+
+    @field_validator("box_type")
+    @classmethod
+    def box_type_name(cls, value: str) -> str:
+        text = (value or "grid").strip()
+        if text not in {"grid", "reel"}:
+            raise ValueError("物料盒类型只能是 grid 或 reel")
+        return text
 
 
 class BoxOut(ORMModel):
     id: int
     name: str
+    box_type: str = "grid"
     rows: int
     cols: int
+    slot_count: int = 0
     remark: str
     created_at: datetime
 
@@ -77,9 +89,7 @@ class ItemIn(BaseModel):
     params: str = ""
     specs: dict[str, str] = Field(default_factory=dict)
     quantity: int = 0
-    box_id: int | None = None
-    row: int | None = None
-    col: int | None = None
+    unit_price: float | None = None
     datasheet_url: str = ""
     image_url: str = ""
     remark: str = ""
@@ -91,10 +101,90 @@ class ItemIn(BaseModel):
             raise ValueError("库存不能为负数")
         return value
 
+    @field_validator("unit_price")
+    @classmethod
+    def price_non_negative(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if value < 0:
+            raise ValueError("单价不能为负数")
+        return value
+
     @field_validator("specs", mode="before")
     @classmethod
     def specs_as_dict(cls, value):
         return _specs_dict(value)
+
+
+class LocationOut(BaseModel):
+    id: int
+    item_id: int
+    location_type: str
+    box_id: int | None = None
+    box_name: str | None = None
+    row: int | None = None
+    col: int | None = None
+    reel_label: str = ""
+    slot_index: int | None = None
+    quantity: int
+
+
+class LocationIn(BaseModel):
+    location_type: str
+    box_id: int | None = None
+    row: int | None = None
+    col: int | None = None
+    reel_label: str = ""
+    slot_index: int | None = None
+    quantity: int = 0
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("数量不能为负数")
+        return value
+
+
+class LocationUpdate(BaseModel):
+    quantity: int
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("数量不能为负数")
+        return value
+
+
+class TransferIn(BaseModel):
+    from_location_id: int
+    to_type: str
+    to_box_id: int | None = None
+    to_row: int | None = None
+    to_col: int | None = None
+    to_reel_label: str = ""
+    to_slot_index: int | None = None
+    quantity: int
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("流转数量需要大于 0")
+        return value
+
+
+class ItemCheckoutIn(BaseModel):
+    location_id: int
+    quantity: int
+
+    @field_validator("quantity")
+    @classmethod
+    def quantity_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("出库数量需要大于 0")
+        return value
 
 
 class ItemOut(BaseModel):
@@ -109,10 +199,9 @@ class ItemOut(BaseModel):
     params: str
     specs: dict[str, str] = Field(default_factory=dict)
     quantity: int
-    box_id: int | None = None
-    box_name: str | None = None
-    row: int | None = None
-    col: int | None = None
+    unit_price: float | None = None
+    total_value: float | None = None
+    locations: list[LocationOut] = Field(default_factory=list)
     datasheet_url: str
     image_url: str
     remark: str
@@ -131,16 +220,39 @@ class CellOut(BaseModel):
     row: int
     col: int
     item: ItemOut | None = None
+    location_id: int | None = None
+    location_quantity: int = 0
+    cell_value: float | None = None
     dimmed: bool = False
+
+
+class ReelSlotOut(BaseModel):
+    slot_index: int
+    location_id: int | None = None
+    reel_label: str = ""
+    quantity: int = 0
+    cell_value: float | None = None
+    dimmed: bool = False
+    item: ItemOut | None = None
+
+
+class PlacedItemOut(ItemOut):
+    location_id: int
+    location_quantity: int
+    cell_value: float | None = None
+    reel_label: str = ""
 
 
 class BoxMapOut(BaseModel):
     id: int
     name: str
+    box_type: str = "grid"
     rows: int
     cols: int
+    slot_count: int = 0
     remark: str
     cells: list[CellOut]
+    reel_slots: list[ReelSlotOut] = Field(default_factory=list)
     invalid_items: list[ItemOut]
 
 
@@ -148,14 +260,26 @@ class MapStats(BaseModel):
     item_count: int
     box_count: int
     quantity_total: int
+    total_value: float = 0
 
 
 class MapOut(BaseModel):
     stats: MapStats
     categories: list[str]
     boxes: list[BoxMapOut]
-    unboxed: list[ItemOut]
+    unboxed: list[PlacedItemOut]
     highlights: dict[str, list[str]]
+
+
+class StatPoint(BaseModel):
+    date: str
+    value: float
+
+
+class StatSeries(BaseModel):
+    start: str
+    end: str
+    points: list[StatPoint]
 
 
 class ProjectBrief(BaseModel):
@@ -271,9 +395,7 @@ class AdoptOut(BaseModel):
     datasheet_url: str = ""
     image_url: str = ""
     quantity: int = 0
-    box_id: int | None = None
-    row: int | None = None
-    col: int | None = None
+    unit_price: float | None = None
     remark: str = ""
     mall_stock: int | None = None
     mall_price: str = ""

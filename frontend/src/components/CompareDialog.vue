@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api'
-import { MATCH_STATUS } from '../format'
+import { MATCH_STATUS, placeText } from '../format'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -116,10 +116,9 @@ const bomChips = computed(() => chips(props.line))
 const stockChips = computed(() => chips(picked.value))
 
 const place = computed(() => {
-  const item = picked.value
-  if (!item) return ''
-  if (item.box_name && item.row && item.col) return `${item.box_name} ${item.row}-${item.col}`
-  return '未入盒'
+  const locs = picked.value?.locations || []
+  if (!locs.length) return '未入盒'
+  return locs.map((loc) => placeText(loc)).join('；')
 })
 
 const required = computed(() => props.line?.quantity_required ?? 0)

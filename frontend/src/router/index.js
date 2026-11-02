@@ -8,6 +8,7 @@ import Items from '../views/Items.vue'
 import MapView from '../views/Map.vue'
 import Projects from '../views/Projects.vue'
 import ProjectDetail from '../views/ProjectDetail.vue'
+import Statistics from '../views/Statistics.vue'
 import Users from '../views/Users.vue'
 import Settings from '../views/Settings.vue'
 import SpecCategories from '../views/SpecCategories.vue'
@@ -26,6 +27,7 @@ const router = createRouter({
         { path: 'map', component: MapView, meta: { title: '物料盒地图' } },
         { path: 'projects', component: Projects, meta: { title: '项目 BOM' } },
         { path: 'projects/:id', component: ProjectDetail, meta: { title: '匹配结果' } },
+        { path: 'statistics', component: Statistics, meta: { title: '物料统计' } },
         { path: 'users', component: Users, meta: { title: '账户管理', admin: true } },
         { path: 'settings', component: Settings, meta: { title: '系统配置', admin: true } },
         { path: 'settings/categories', component: SpecCategories, meta: { title: '参数配置', admin: true } },

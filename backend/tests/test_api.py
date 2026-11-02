@@ -42,28 +42,43 @@ def test_boxes_are_independent_and_items_move(client):
             "category": "电阻",
             "value": "10kΩ",
             "quantity": 8,
-            "box_id": wide_id,
-            "row": 2,
-            "col": 3,
         },
     )
     assert created.status_code == 200, created.text
     item_id = created.json()["id"]
-    conflict = client.post(
-        "/api/items",
-        json={"mpn": "R2", "quantity": 1, "box_id": wide_id, "row": 2, "col": 3},
-    )
+    source = client.get(f"/api/items/{item_id}/locations").json()[0]["id"]
+
+    def move(location_id, box_id, row, col, quantity):
+        return client.post(
+            "/api/transfer",
+            json={
+                "from_location_id": location_id,
+                "to_type": "box_cell",
+                "to_box_id": box_id,
+                "to_row": row,
+                "to_col": col,
+                "quantity": quantity,
+            },
+        )
+
+    moved = move(source, wide_id, 2, 3, 8)
+    assert moved.status_code == 200, moved.text
+    other = client.post("/api/items", json={"mpn": "R2", "quantity": 1})
+    assert other.status_code == 200, other.text
+    other_id = other.json()["id"]
+    other_loc = client.get(f"/api/items/{other_id}/locations").json()[0]["id"]
+    conflict = move(other_loc, wide_id, 2, 3, 1)
     assert conflict.status_code == 400
     shrink = client.put("/api/boxes/" + str(wide_id), json={"name": "宽盒", "rows": 1, "cols": 1, "remark": ""})
     assert shrink.status_code == 400
     assert "移走" in shrink.json()["detail"]
-    moved = client.post(f"/api/items/{item_id}/unbox")
-    assert moved.json()["box_id"] is None
-    placed = client.put(
-        f"/api/items/{item_id}",
-        json={**created.json(), "box_id": small_id, "row": 1, "col": 1, "quantity": 8},
-    )
-    assert placed.status_code == 200
+    assert client.delete(f"/api/items/{other_id}").status_code == 200
+    cleared = client.post(f"/api/items/{item_id}/unbox")
+    assert cleared.status_code == 200, cleared.text
+    assert {row["location_type"] for row in cleared.json()["locations"]} == {"unboxed"}
+    unboxed_id = cleared.json()["locations"][0]["id"]
+    placed = move(unboxed_id, small_id, 1, 1, 8)
+    assert placed.status_code == 200, placed.text
     inventory = client.get("/api/map").json()
     sizes = {box["name"]: (box["rows"], box["cols"], len(box["cells"])) for box in inventory["boxes"]}
     assert sizes["宽盒"] == (5, 10, 50)
@@ -73,7 +88,7 @@ def test_boxes_are_independent_and_items_move(client):
     assert deleted.status_code == 200
     again = client.get("/api/map").json()
     assert again["unboxed"][0]["mpn"] == "R1"
-    assert again["unboxed"][0]["box_id"] is None
+    assert again["unboxed"][0]["location_quantity"] == 8
 
 
 def test_owner_can_delete_project_and_lines(client):
@@ -339,6 +354,9 @@ def test_bulk_add_checkout_and_stock_delta(client):
     checked = client.post(f"/api/projects/{project_id}/checkout")
     assert checked.status_code == 200, checked.text
     assert checked.json() == {"deducted": 5, "skipped": 0}
+    consumed = client.get("/api/statistics/consumption")
+    assert consumed.status_code == 200, consumed.text
+    assert sum(point["value"] for point in consumed.json()["points"]) == 16
     assert client.get(f"/api/items/{resistor_id}").json()["quantity"] == 8
     assert client.get(f"/api/items/{coded_id}").json()["quantity"] == 1
     delta = client.post(f"/api/projects/{project_id}/lines/{mcu['id']}/stock-delta", json={"delta": -10})
@@ -526,3 +544,84 @@ def test_spec_categories_follow_the_user(client):
         assert "freq" in (db.get(Item, good.json()["id"]).specs or "")
     finally:
         db.close()
+
+
+def _stock_events(item_id):
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import StockEvent
+
+    db = SessionLocal()
+    try:
+        rows = db.scalars(select(StockEvent).where(StockEvent.item_id == item_id).order_by(StockEvent.id)).all()
+        return [(row.event_type, row.quantity_delta) for row in rows]
+    finally:
+        db.close()
+
+
+def test_reel_slots_partial_transfer_and_new_inbound(client):
+    register(client, "reel@example.com")
+    missing = client.post("/api/boxes", json={"name": "缺卷数", "box_type": "reel"})
+    assert missing.status_code == 400
+    assert "最大卷数" in missing.json()["detail"]
+    created_box = client.post("/api/boxes", json={"name": "料卷盒", "box_type": "reel", "slot_count": 4})
+    assert created_box.status_code == 200, created_box.text
+    box = created_box.json()
+    assert box["slot_count"] == 4
+    assert box["rows"] == 0 and box["cols"] == 0
+
+    created = client.post("/api/items", json={"mpn": "REEL-A", "category": "电阻", "value": "10kΩ", "quantity": 10})
+    assert created.status_code == 200, created.text
+    item_id = created.json()["id"]
+    source = client.get(f"/api/items/{item_id}/locations").json()[0]["id"]
+    moved = client.post(
+        "/api/transfer",
+        json={"from_location_id": source, "to_type": "tape_reel", "to_box_id": box["id"], "to_slot_index": 2, "quantity": 4},
+    )
+    assert moved.status_code == 200, moved.text
+    assert _stock_events(item_id) == [("stock_in", 10)]
+    inventory = client.get("/api/map").json()
+    reel = next(row for row in inventory["boxes"] if row["name"] == "料卷盒")
+    assert len(reel["reel_slots"]) == 4
+    assert sum(slot["item"] is None for slot in reel["reel_slots"]) == 3
+    assert reel["reel_slots"][1]["slot_index"] == 2
+    assert reel["reel_slots"][1]["quantity"] == 4
+    assert inventory["unboxed"][0]["location_quantity"] == 6
+    assert inventory["unboxed"][0]["quantity"] == 10
+
+    fresh = client.post("/api/items", json={"mpn": "REEL-B", "quantity": 5})
+    assert fresh.status_code == 200, fresh.text
+    fresh_id = fresh.json()["id"]
+    fresh_loc = client.get(f"/api/items/{fresh_id}/locations").json()[0]["id"]
+    placed = client.post(
+        "/api/transfer",
+        json={"from_location_id": fresh_loc, "to_type": "tape_reel", "to_box_id": box["id"], "to_slot_index": 1, "quantity": 5},
+    )
+    assert placed.status_code == 200, placed.text
+    assert _stock_events(fresh_id) == [("stock_in", 5)]
+    consumed = client.get("/api/statistics/consumption").json()
+    assert sum(point["value"] for point in consumed["points"]) == 0
+
+    other = client.post("/api/items", json={"mpn": "REEL-C", "quantity": 1})
+    other_loc = client.get(f"/api/items/{other.json()['id']}/locations").json()[0]["id"]
+    conflict = client.post(
+        "/api/transfer",
+        json={"from_location_id": other_loc, "to_type": "tape_reel", "to_box_id": box["id"], "to_slot_index": 2, "quantity": 1},
+    )
+    assert conflict.status_code == 400
+    assert "槽位" in conflict.json()["detail"]
+    beyond = client.post(
+        "/api/transfer",
+        json={"from_location_id": other_loc, "to_type": "tape_reel", "to_box_id": box["id"], "to_slot_index": 5, "quantity": 1},
+    )
+    assert beyond.status_code == 400
+    shrink = client.put("/api/boxes/" + str(box["id"]), json={"name": "料卷盒", "box_type": "reel", "slot_count": 1})
+    assert shrink.status_code == 400
+    assert "缩小卷数" in shrink.json()["detail"]
+    kept = client.put("/api/boxes/" + str(box["id"]), json={"name": "料卷盒", "box_type": "reel", "slot_count": 2})
+    assert kept.status_code == 200, kept.text
+    again = client.get("/api/map").json()
+    resized = next(row for row in again["boxes"] if row["id"] == box["id"])
+    assert len(resized["reel_slots"]) == 2
+    assert sum(slot["item"] is None for slot in resized["reel_slots"]) == 0

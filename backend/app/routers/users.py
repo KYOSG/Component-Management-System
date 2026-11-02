@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import require_admin
-from app.models import Box, Item, Project, ProjectLine, SpecCategory, User
+from app.models import Box, Item, ItemLocation, Project, ProjectLine, SpecCategory, StockEvent, User
 from app.routers.auth import _check_password
 from app.schemas import UserOut, UserWrite
 from app.security import hash_password
@@ -33,6 +33,8 @@ def delete_user_data(db: Session, user: User) -> None:
     item_ids = list(db.scalars(select(Item.id).where(Item.user_id == user.id)).all())
     if item_ids:
         db.execute(update(ProjectLine).where(ProjectLine.matched_item_id.in_(item_ids)).values(matched_item_id=None))
+    db.execute(delete(StockEvent).where(StockEvent.user_id == user.id))
+    db.execute(delete(ItemLocation).where(ItemLocation.user_id == user.id))
     project_ids = list(db.scalars(select(Project.id).where(Project.user_id == user.id)).all())
     if project_ids:
         db.execute(delete(ProjectLine).where(ProjectLine.project_id.in_(project_ids)))

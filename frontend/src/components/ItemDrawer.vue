@@ -2,7 +2,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../api'
-import { itemPayload } from '../format'
+import { itemPayload, placeText } from '../format'
 import { categoryNames, loadCatalog, specFields, specValueOk } from '../specCatalog'
 
 const props = defineProps({
@@ -25,9 +25,12 @@ const empty = () => ({
   params: '',
   specs: {},
   quantity: 0,
+  unit_price: null,
+  locations: [],
   box_id: null,
   row: null,
   col: null,
+  slot_index: null,
   datasheet_url: '',
   image_url: '',
   remark: '',
@@ -39,7 +42,13 @@ const saving = ref(false)
 const hint = ref('')
 const hydrating = ref(false)
 
-const currentBox = computed(() => props.boxes.find((box) => box.id === form.box_id) || null)
+const gridBoxes = computed(() => props.boxes.filter((box) => (box.box_type || 'grid') === 'grid'))
+const currentBox = computed(() => gridBoxes.value.find((box) => box.id === form.box_id) || null)
+const reelPlaceText = computed(() => {
+  if (!form.slot_index) return ''
+  const box = props.boxes.find((row) => row.id === form.box_id)
+  return `${box?.name || '料卷盒'} 卷${form.slot_index}`
+})
 const title = computed(() => (form.id ? '编辑物料' : '新增物料'))
 const names = computed(() => categoryNames())
 const fields = computed(() => specFields(form.category))
@@ -75,6 +84,32 @@ function close() {
   emit('update:modelValue', false)
 }
 
+async function placeNew(itemId, place) {
+  const { data } = await http.get(`/items/${itemId}/locations`)
+  const unboxed = data.find((row) => row.location_type === 'unboxed' && row.quantity > 0)
+  const reel = !!place.slot_index
+  if (unboxed) {
+    await http.post('/transfer', {
+      from_location_id: unboxed.id,
+      to_type: reel ? 'tape_reel' : 'box_cell',
+      to_box_id: place.box_id,
+      to_row: reel ? null : place.row,
+      to_col: reel ? null : place.col,
+      to_slot_index: reel ? place.slot_index : null,
+      quantity: unboxed.quantity,
+    })
+    return
+  }
+  await http.post(`/items/${itemId}/locations`, {
+    location_type: reel ? 'tape_reel' : 'box_cell',
+    box_id: place.box_id,
+    row: reel ? null : place.row,
+    col: reel ? null : place.col,
+    slot_index: reel ? place.slot_index : null,
+    quantity: 0,
+  })
+}
+
 function onBoxChange() {
   if (!form.box_id) {
     form.row = null
@@ -93,7 +128,9 @@ async function queryLcsc() {
       box_id: form.box_id,
       row: form.row,
       col: form.col,
+      slot_index: form.slot_index,
       remark: form.remark,
+      locations: form.locations,
     }
     Object.assign(form, {
       lcsc_code: data.lcsc_code,
@@ -105,6 +142,7 @@ async function queryLcsc() {
       value: data.value,
       params: data.params,
       specs: { ...(data.specs || {}) },
+      unit_price: data.unit_price ?? null,
       datasheet_url: data.datasheet_url,
       image_url: data.image_url,
     }, keep)
@@ -116,7 +154,7 @@ async function queryLcsc() {
 }
 
 async function save() {
-  if (form.box_id && (!form.row || !form.col)) {
+  if (!form.slot_index && form.box_id && (!form.row || !form.col)) {
     ElMessage.warning('放入物料盒时需要填写行和列')
     return
   }
@@ -134,10 +172,15 @@ async function save() {
   saving.value = true
   try {
     const payload = itemPayload(form)
+    const place = !form.id && form.box_id
+      ? { box_id: form.box_id, row: form.row, col: form.col, slot_index: form.slot_index }
+      : null
     if (form.id) {
       await http.put(`/items/${form.id}`, payload)
     } else {
-      await http.post('/items', payload)
+      const saved = await http.post('/items', payload)
+      form.id = saved.data.id
+      if (place?.slot_index || (place?.box_id && place.row && place.col)) await placeNew(saved.data.id, place)
     }
     ElMessage.success('已保存')
     emit('saved')
@@ -204,15 +247,29 @@ async function save() {
       <el-form-item label="参数">
         <el-input v-model="form.params" type="textarea" :rows="4" />
       </el-form-item>
+      <el-form-item label="单价">
+        <el-input-number v-model="form.unit_price" :min="0" :step="0.0001" :precision="4" :value-on-clear="null" />
+        <div class="muted">立创查询会填入最小起订量的单价。物料总价值 = 单价 × 总库存。</div>
+      </el-form-item>
       <el-form-item label="自有库存">
         <el-input-number v-model="form.quantity" :min="0" :step="1" />
+        <div v-if="!form.id && (form.slot_index || (form.box_id && form.row && form.col))" class="muted">这里填写的数量记一次新入库，保存后转入目标位置。</div>
+        <div v-else class="muted">改的是总库存。增加的数量记为未入库，不能低于已放入盒子和料卷的数量。</div>
       </el-form-item>
-      <el-form-item label="物料盒">
-        <el-select v-model="form.box_id" clearable placeholder="未入盒" style="width: 100%" @change="onBoxChange">
-          <el-option v-for="box in boxes" :key="box.id" :label="`${box.name}（${box.rows} 行 × ${box.cols} 列）`" :value="box.id" />
+      <el-form-item v-if="form.id" label="存放位置">
+        <div v-for="loc in form.locations" :key="loc.id">{{ placeText(loc) }}</div>
+        <span v-if="!form.locations?.length" class="muted">还没有分配位置。请到物料盒地图里流转。</span>
+      </el-form-item>
+      <el-form-item v-if="!form.id && form.slot_index" label="放入位置">
+        <span>{{ reelPlaceText }}</span>
+        <div class="muted">保存时先按上面的自有库存记一次新入库，再转入这个料卷槽。</div>
+      </el-form-item>
+      <el-form-item v-if="!form.id && !form.slot_index" label="物料盒">
+        <el-select v-model="form.box_id" clearable placeholder="先放在未入库" style="width: 100%" @change="onBoxChange">
+          <el-option v-for="box in gridBoxes" :key="box.id" :label="`${box.name}（${box.rows} 行 × ${box.cols} 列）`" :value="box.id" />
         </el-select>
       </el-form-item>
-      <el-form-item v-if="currentBox" label="格子">
+      <el-form-item v-if="!form.id && !form.slot_index && currentBox" label="格子">
         <el-input-number v-model="form.row" :min="1" :max="currentBox.rows" />
         <span class="muted">行</span>
         <el-input-number v-model="form.col" :min="1" :max="currentBox.cols" />

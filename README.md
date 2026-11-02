@@ -20,8 +20,8 @@ uvicorn app.main:app --reload --port 8000
 
 ```powershell
 cd frontend
-npm install
 npm run serve
+npm install
 ```
 
 浏览器打开 `http://localhost:8080`。开发服务器把 `/api` 转发到 `8000`。

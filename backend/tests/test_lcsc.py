@@ -31,6 +31,7 @@ def test_map_product_fields():
     assert "功率: 100mW" in mapped["params"]
     assert mapped["mall_stock"] == 100
     assert mapped["mall_price"] == "$0.0021"
+    assert mapped["unit_price"] == 0.0021
 
 
 def test_map_inductor_specs():

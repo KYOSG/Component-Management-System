@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Box, Item, Project, ProjectLine, User, utcnow
+from app.models import Item, Project, ProjectLine, User, utcnow
 from app.schemas import AdoptOut, BulkAddOut, CheckoutOut, LineOut, ProjectBrief, ProjectOut, ProjectUpdate, ReplaceIn, StockDeltaIn
 from app.services.bom import BomError, ParsedLine, parse_upload
 from app.services.lcsc import LcscError, fetch_lcsc
@@ -25,17 +25,39 @@ from app.services.matching import apply_match, recommend_pending
 from app.services.system_config import read_settings
 from app.services.spec_config import load_catalog
 from app.services.specs import SpecCatalog, default_catalog, dump_specs, parse_params
+from app.services.stock import change_quantity, place_snapshots
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+def _place_text(place: dict) -> str:
+    quantity = place.get("quantity", 0)
+    if place.get("location_type") == "tape_reel" or place.get("reel_label"):
+        box = place.get("box_name") or "料卷盒"
+        label = place.get("reel_label") or "料卷"
+        return f"{box} {label}（库存 {quantity}）"
+    if place.get("box_name") and place.get("row") and place.get("col"):
+        return f"{place['box_name']} {place['row']}-{place['col']}（库存 {quantity}）"
+    return f"未入盒（库存 {quantity}）"
+
+
 def _location(record: dict) -> str:
+    places = record.get("places")
+    if isinstance(places, list) and places:
+        return "；".join(_place_text(place) for place in places if isinstance(place, dict))
     if record.get("box_name") and record.get("row") and record.get("col"):
         place = f"{record['box_name']} {record['row']}-{record['col']}"
     else:
         place = "未入盒"
     return f"{place}（库存 {record.get('quantity', 0)}）"
+
+
+def _record_locations(record: dict) -> list[str]:
+    places = record.get("places")
+    if isinstance(places, list) and places:
+        return [_place_text(place) for place in places if isinstance(place, dict)]
+    return [_location(record)]
 
 
 def line_out(line: ProjectLine, *, include_match: bool = True) -> LineOut:
@@ -70,7 +92,7 @@ def line_out(line: ProjectLine, *, include_match: bool = True) -> LineOut:
         matched_item_id=line.matched_item_id if include_match else None,
         reason="" if suggestions.get("reason") == "立创编号一致" else (suggestions.get("reason") or ""),
         risks=[risk for risk in risks if isinstance(risk, str)],
-        locations=[_location(record) for record in records if isinstance(record, dict)],
+        locations=[text for record in records if isinstance(record, dict) for text in _record_locations(record)],
         stock=stock,
         matched_at=line.matched_at if include_match else None,
     )
@@ -134,7 +156,8 @@ def _find_lib_item(db: Session, user_id: int, line: ProjectLine) -> Item | None:
     return None
 
 
-def _library_suggestions(item: Item, box_name: str) -> dict:
+def _library_suggestions(item: Item, places: list[dict]) -> dict:
+    cell = next((place for place in places if place.get("location_type") == "box_cell"), None)
     record = {
         "item_id": item.id,
         "lcsc_code": item.lcsc_code or "",
@@ -144,9 +167,10 @@ def _library_suggestions(item: Item, box_name: str) -> dict:
         "value": item.value or "",
         "category": item.category or "",
         "quantity": item.quantity or 0,
-        "box_name": box_name or "",
-        "row": item.row,
-        "col": item.col,
+        "box_name": (cell or {}).get("box_name") or "",
+        "row": (cell or {}).get("row"),
+        "col": (cell or {}).get("col"),
+        "places": places,
         "suitable": True,
         "reason": "已在物料库",
         "risks": [],
@@ -154,14 +178,15 @@ def _library_suggestions(item: Item, box_name: str) -> dict:
     return {"source": "library", "reason": "已在物料库", "risks": [], "exact_hits": [record], "candidates": []}
 
 
-def _link_line(line: ProjectLine, item: Item, box_name: str) -> None:
+def _link_line(db: Session, line: ProjectLine, item: Item) -> None:
+    places = place_snapshots(db, [item.id]).get(item.id, [])
     line.matched_item_id = item.id
     line.match_status = "insufficient" if (item.quantity or 0) < (line.quantity_required or 0) else "matched"
-    line.suggestions_json = json.dumps(_library_suggestions(item, box_name), ensure_ascii=False)
+    line.suggestions_json = json.dumps(_library_suggestions(item, places), ensure_ascii=False)
     line.matched_at = utcnow()
 
 
-def _use_item_on_line(line: ProjectLine, item: Item, box_name: str) -> None:
+def _use_item_on_line(db: Session, line: ProjectLine, item: Item) -> None:
     before = item.quantity
     line.lcsc_code = item.lcsc_code or ""
     line.mpn = item.mpn or ""
@@ -171,7 +196,7 @@ def _use_item_on_line(line: ProjectLine, item: Item, box_name: str) -> None:
     line.params = item.params or ""
     line.product_name = item.name or ""
     line.category = item.category or ""
-    _link_line(line, item, box_name)
+    _link_line(db, line, item)
     item.quantity = before
     suggestions = json.loads(line.suggestions_json or "{}")
     suggestions["reason"] = ""
@@ -198,12 +223,6 @@ def _patch_stock(line: ProjectLine, item: Item) -> None:
     line.suggestions_json = json.dumps(suggestions, ensure_ascii=False)
     if line.match_status in ("matched", "insufficient"):
         line.match_status = "insufficient" if (item.quantity or 0) < (line.quantity_required or 0) else "matched"
-
-
-def _box_name(db: Session, item: Item) -> str:
-    if not item.box_id:
-        return ""
-    return db.scalar(select(Box.name).where(Box.id == item.box_id)) or ""
 
 
 def _own_line(db: Session, project: Project, line_id: int) -> ProjectLine:
@@ -397,20 +416,20 @@ def add_all(project_id: int, user: User = Depends(get_current_user), db: Session
                 value=line.value or "",
                 params=line.params or "",
                 specs="{}",
-                quantity=amount,
+                quantity=0,
             )
             db.add(item)
             db.flush()
             added += 1
         else:
-            item.quantity = (item.quantity or 0) + amount
-            item.updated_at = utcnow()
             incremented += 1
+        if amount:
+            change_quantity(db, user.id, item, amount, positive="stock_in", note="BOM 入库")
         line.matched_item_id = item.id
     for line in lines:
         item = db.get(Item, line.matched_item_id) if line.matched_item_id else None
         if item is not None:
-            _link_line(line, item, _box_name(db, item))
+            _link_line(db, line, item)
     db.commit()
     return BulkAddOut(added=added, incremented=incremented)
 
@@ -441,16 +460,37 @@ def checkout(project_id: int, user: User = Depends(get_current_user), db: Sessio
         deducted += 1
     for item_id, amount in totals.items():
         item = items.get(item_id)
-        if item is None:
+        if item is None or not amount:
             continue
-        item.quantity = (item.quantity or 0) - amount
-        item.updated_at = utcnow()
+        change_quantity(db, user.id, item, -amount, negative="checkout", project_id=project.id, note="一键出库")
     for line in linked:
         item = items.get(line.matched_item_id)
         if item is not None:
             _patch_stock(line, item)
     db.commit()
     return CheckoutOut(deducted=deducted, skipped=skipped)
+
+
+@router.post("/{project_id}/lines/{line_id}/checkout", response_model=LineOut)
+def checkout_line(
+    project_id: int,
+    line_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LineOut:
+    project = _own_project(db, user, project_id)
+    line = _own_line(db, project, line_id)
+    if not line.matched_item_id:
+        raise HTTPException(status_code=400, detail="这条明细还没有对应的库存物料")
+    item = db.scalar(select(Item).where(Item.id == line.matched_item_id, Item.user_id == user.id))
+    if item is None:
+        raise HTTPException(status_code=400, detail="库存物料不存在")
+    amount = line.quantity_required or 0
+    if amount:
+        change_quantity(db, user.id, item, -amount, negative="checkout", project_id=project.id, note="单行出库")
+    _patch_stock(line, item)
+    db.commit()
+    return line_out(line)
 
 
 @router.post("/{project_id}/lines/{line_id}/replace", response_model=LineOut)
@@ -491,12 +531,13 @@ def replace_line(
                 params=info.get("params") or "",
                 specs=dump_specs(catalog.extract(info.get("category") or "", parse_params(info.get("params") or ""))),
                 datasheet_url=info.get("datasheet_url") or "",
+                unit_price=info.get("unit_price"),
                 quantity=0,
             )
             db.add(item)
             db.flush()
     quantity_before = item.quantity
-    _use_item_on_line(line, item, _box_name(db, item))
+    _use_item_on_line(db, line, item)
     item.quantity = quantity_before
     db.commit()
     return line_out(line)
@@ -537,8 +578,7 @@ def stock_delta(
     item = db.scalar(select(Item).where(Item.id == line.matched_item_id, Item.user_id == user.id))
     if item is None:
         raise HTTPException(status_code=400, detail="库存物料不存在")
-    item.quantity = (item.quantity or 0) + body.delta
-    item.updated_at = utcnow()
+    change_quantity(db, user.id, item, body.delta, positive="stock_in", negative="adjust", note="BOM 调整库存")
     _patch_stock(line, item)
     db.commit()
     return line_out(line)
@@ -591,6 +631,7 @@ def adopt_line(
         datasheet_url=info.get("datasheet_url") or "",
         image_url=info.get("image_url") or "",
         quantity=0,
+        unit_price=info.get("unit_price"),
         mall_stock=info.get("mall_stock"),
         mall_price=info.get("mall_price") or "",
         warning=warning,

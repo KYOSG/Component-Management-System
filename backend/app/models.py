@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -55,18 +55,17 @@ class Box(Base):
     name: Mapped[str] = mapped_column(String(120))
     rows: Mapped[int] = mapped_column(Integer)
     cols: Mapped[int] = mapped_column(Integer)
+    box_type: Mapped[str] = mapped_column(String(16), default="grid", server_default="grid")
+    slot_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     remark: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    items: Mapped[list[Item]] = relationship(back_populates="box")
+    locations: Mapped[list[ItemLocation]] = relationship(back_populates="box")
 
 
 class Item(Base):
     __tablename__ = "items"
-    __table_args__ = (
-        UniqueConstraint("user_id", "lcsc_code", name="uq_item_user_lcsc"),
-        UniqueConstraint("box_id", "row", "col", name="uq_item_cell"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "lcsc_code", name="uq_item_user_lcsc"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -80,16 +79,51 @@ class Item(Base):
     params: Mapped[str] = mapped_column(Text, default="")
     specs: Mapped[str] = mapped_column(Text, default="{}")
     quantity: Mapped[int] = mapped_column(Integer, default=0)
-    box_id: Mapped[int | None] = mapped_column(ForeignKey("boxes.id"), nullable=True)
-    row: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    col: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     datasheet_url: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str] = mapped_column(Text, default="")
     remark: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    box: Mapped[Box | None] = relationship(back_populates="items")
+    locations: Mapped[list[ItemLocation]] = relationship(back_populates="item", cascade="all, delete-orphan")
+    events: Mapped[list[StockEvent]] = relationship(back_populates="item", cascade="all, delete-orphan")
+
+
+class ItemLocation(Base):
+    __tablename__ = "item_locations"
+    __table_args__ = (UniqueConstraint("box_id", "row", "col", name="uq_location_cell"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    location_type: Mapped[str] = mapped_column(String(16))
+    box_id: Mapped[int | None] = mapped_column(ForeignKey("boxes.id"), nullable=True)
+    row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    col: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reel_label: Mapped[str] = mapped_column(String(64), default="")
+    slot_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    item: Mapped[Item] = relationship(back_populates="locations")
+    box: Mapped[Box | None] = relationship(back_populates="locations")
+
+
+class StockEvent(Base):
+    __tablename__ = "stock_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(16))
+    quantity_delta: Mapped[int] = mapped_column(Integer)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    item: Mapped[Item] = relationship(back_populates="events")
 
 
 class Project(Base):

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine import make_url
 
 from app.database import ensure_sqlite_directory, sqlite_path
-from app.models import Base, Item, User
+from app.models import Base, Box, Item, ItemLocation, User, utcnow
 from app.security import hash_password
 from app.services.spec_config import load_catalog, seed_defaults
 from app.services.specs import dump_specs, load_specs, parse_params
@@ -64,14 +64,120 @@ def _ensure_is_admin_column(bind) -> None:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
 
 
-def _ensure_specs_column(bind) -> None:
+def _column_names(bind, table: str) -> set[str]:
     inspector = inspect(bind)
-    if "items" not in inspector.get_table_names():
+    if table not in inspector.get_table_names():
+        return set()
+    return {column["name"] for column in inspector.get_columns(table)}
+
+
+def _ensure_specs_column(bind) -> None:
+    if "specs" in _column_names(bind, "items") or not _column_names(bind, "items"):
         return
-    names = {column["name"] for column in inspector.get_columns("items")}
-    if "specs" not in names:
-        with bind.begin() as conn:
-            conn.execute(text("ALTER TABLE items ADD COLUMN specs TEXT"))
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE items ADD COLUMN specs TEXT"))
+
+
+def _ensure_unit_price_column(bind) -> None:
+    if "unit_price" in _column_names(bind, "items") or not _column_names(bind, "items"):
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE items ADD COLUMN unit_price FLOAT"))
+
+
+def _ensure_box_type_column(bind) -> None:
+    if "box_type" in _column_names(bind, "boxes") or not _column_names(bind, "boxes"):
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE boxes ADD COLUMN box_type VARCHAR(16) NOT NULL DEFAULT 'grid'"))
+
+
+def _ensure_slot_count_column(bind) -> None:
+    if "slot_count" in _column_names(bind, "boxes") or not _column_names(bind, "boxes"):
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE boxes ADD COLUMN slot_count INTEGER NOT NULL DEFAULT 0"))
+
+
+def _ensure_slot_index_column(bind) -> None:
+    if "slot_index" in _column_names(bind, "item_locations") or not _column_names(bind, "item_locations"):
+        return
+    with bind.begin() as conn:
+        conn.execute(text("ALTER TABLE item_locations ADD COLUMN slot_index INTEGER"))
+
+
+def _backfill_locations(bind, session_factory) -> None:
+    item_columns = _column_names(bind, "items")
+    if not item_columns or "item_locations" not in inspect(bind).get_table_names():
+        return
+    db = session_factory()
+    try:
+        existing = db.scalar(select(func.count()).select_from(ItemLocation)) or 0
+        if existing:
+            return
+        if "box_id" in item_columns:
+            rows = db.execute(text("SELECT id, user_id, quantity, box_id, row, col FROM items")).all()
+        else:
+            rows = db.execute(text("SELECT id, user_id, quantity, NULL, NULL, NULL FROM items")).all()
+        now = utcnow()
+        for item_id, user_id, quantity, box_id, row, col in rows:
+            amount = quantity or 0
+            placed = box_id and row and col
+            if not placed and not amount:
+                continue
+            db.add(
+                ItemLocation(
+                    item_id=item_id,
+                    user_id=user_id,
+                    location_type="box_cell" if placed else "unboxed",
+                    box_id=box_id if placed else None,
+                    row=row if placed else None,
+                    col=col if placed else None,
+                    reel_label="",
+                    quantity=amount,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _backfill_reel_slots(session_factory) -> None:
+    db = session_factory()
+    try:
+        boxes = list(db.scalars(select(Box).where(Box.box_type == "reel")).all())
+        changed = False
+        for box in boxes:
+            locs = list(
+                db.scalars(
+                    select(ItemLocation)
+                    .where(ItemLocation.box_id == box.id, ItemLocation.location_type == "tape_reel")
+                    .order_by(ItemLocation.id)
+                ).all()
+            )
+            used = {loc.slot_index for loc in locs if loc.slot_index}
+            nxt = 1
+            for loc in locs:
+                if loc.slot_index:
+                    continue
+                while nxt in used:
+                    nxt += 1
+                loc.slot_index = nxt
+                if not (loc.reel_label or "").strip():
+                    loc.reel_label = str(nxt)
+                used.add(nxt)
+                nxt += 1
+                changed = True
+            highest = max(used) if used else 0
+            if (box.slot_count or 0) < highest:
+                box.slot_count = highest
+                changed = True
+        if changed:
+            db.commit()
+    finally:
+        db.close()
 
 
 def _backfill_specs(session_factory) -> None:
@@ -143,6 +249,12 @@ def prepare_connection(bind, session_factory, url: str) -> None:
     Base.metadata.create_all(bind)
     _ensure_is_admin_column(bind)
     _ensure_specs_column(bind)
+    _ensure_unit_price_column(bind)
+    _ensure_box_type_column(bind)
+    _ensure_slot_count_column(bind)
+    _ensure_slot_index_column(bind)
+    _backfill_locations(bind, session_factory)
+    _backfill_reel_slots(session_factory)
     if fresh or _admin_account_missing(session_factory):
         _seed_admin(session_factory)
     if not categories_existed:

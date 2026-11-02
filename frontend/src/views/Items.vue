@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import http from '../api'
-import { cellText } from '../format'
+import { money, placeText } from '../format'
 import { filledSpecs, loadCatalog } from '../specCatalog'
 import ItemDrawer from '../components/ItemDrawer.vue'
 
@@ -57,6 +57,10 @@ function reset() {
     remark: '',
   })
   load()
+}
+
+function placed(row) {
+  return (row.locations || []).some((loc) => loc.location_type !== 'unboxed')
 }
 
 function create() {
@@ -125,17 +129,23 @@ onMounted(async () => {
         </template>
       </el-table-column>
       <el-table-column prop="quantity" label="库存" align="center" header-align="center" />
-      <el-table-column label="物料盒" align="center" header-align="center">
-        <template #default="{ row }">{{ row.box_name || '未入盒' }}</template>
+      <el-table-column label="单价" align="center" header-align="center">
+        <template #default="{ row }">{{ money(row.unit_price) }}</template>
       </el-table-column>
-      <el-table-column label="格子" align="center" header-align="center">
-        <template #default="{ row }">{{ cellText(row.row, row.col) }}</template>
+      <el-table-column label="总价值" align="center" header-align="center">
+        <template #default="{ row }">{{ money(row.total_value) }}</template>
+      </el-table-column>
+      <el-table-column label="存放位置" align="center" header-align="center" min-width="180">
+        <template #default="{ row }">
+          <div v-for="loc in row.locations" :key="loc.id">{{ placeText(loc) }}</div>
+          <span v-if="!row.locations?.length">未分配</span>
+        </template>
       </el-table-column>
       <el-table-column label="操作" align="center" header-align="center">
         <template #default="{ row }">
           <div class="row-actions">
             <el-button size="small" plain type="primary" @click="edit(row)">编辑</el-button>
-            <el-button size="small" plain type="primary" :disabled="!row.box_id" @click="unbox(row)">移出</el-button>
+            <el-button size="small" plain type="primary" :disabled="!placed(row)" @click="unbox(row)">移出</el-button>
             <el-button size="small" plain type="danger" @click="remove(row)">删除</el-button>
           </div>
         </template>

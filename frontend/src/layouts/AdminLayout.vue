@@ -47,6 +47,10 @@ async function logout() {
           <el-icon><Document /></el-icon>
           <span>项目 BOM</span>
         </el-menu-item>
+        <el-menu-item index="/statistics">
+          <el-icon><TrendCharts /></el-icon>
+          <span>物料统计</span>
+        </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users">
           <el-icon><User /></el-icon>
           <span>账户管理</span>

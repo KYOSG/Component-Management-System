@@ -23,6 +23,24 @@ export function cellText(row, col) {
   return `${row}-${col}`
 }
 
+export function money(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  const number = Number(value)
+  if (Number.isNaN(number)) return '—'
+  return `¥${number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+}
+
+export function placeText(loc) {
+  if (!loc) return '未入库'
+  const qty = loc.quantity ?? 0
+  if (loc.location_type === 'tape_reel') {
+    const label = loc.slot_index ? `卷${loc.slot_index}` : (loc.reel_label || '料卷')
+    return `${loc.box_name || '料卷盒'} ${label} × ${qty}`
+  }
+  if (loc.location_type === 'box_cell') return `${loc.box_name || '物料盒'} ${loc.row}-${loc.col} × ${qty}`
+  return `未入库 × ${qty}`
+}
+
 export function itemPayload(item, extra = {}) {
   return {
     lcsc_code: item.lcsc_code || '',
@@ -35,9 +53,7 @@ export function itemPayload(item, extra = {}) {
     params: item.params || '',
     specs: { ...(item.specs || {}) },
     quantity: item.quantity || 0,
-    box_id: item.box_id ?? null,
-    row: item.row ?? null,
-    col: item.col ?? null,
+    unit_price: item.unit_price ?? null,
     datasheet_url: item.datasheet_url || '',
     image_url: item.image_url || '',
     remark: item.remark || '',

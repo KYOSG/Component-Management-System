@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import Box, Item, Project, ProjectLine, utcnow
+from app.models import Item, Project, ProjectLine, utcnow
+from app.services.stock import place_snapshots
 from app.services.deepseek import AiRun
 from app.services.system_config import read_settings
 from app.services.match import ItemSnap, LineSnap, ai_jobs, exact_lcsc_result, local_match_lines, run_ai, settle_ai
@@ -21,30 +22,32 @@ def _write(line: ProjectLine, result, matched_at) -> None:
 
 
 def _context(db: Session, user_id: int, project: Project):
-    item_rows = db.execute(
-        select(Item, Box.name)
-        .outerjoin(Box, Item.box_id == Box.id)
-        .where(Item.user_id == user_id)
-        .order_by(Item.id)
-    ).all()
-    items = [
-        ItemSnap(
-            id=item.id,
-            lcsc_code=item.lcsc_code or "",
-            mpn=item.mpn or "",
-            name=item.name or "",
-            brand=item.brand or "",
-            footprint=item.footprint or "",
-            category=item.category or "",
-            value=item.value or "",
-            params=item.params or "",
-            quantity=item.quantity or 0,
-            box_name=box_name or "",
-            row=item.row,
-            col=item.col,
+    stored = list(db.scalars(select(Item).where(Item.user_id == user_id).order_by(Item.id)).all())
+    located = place_snapshots(db, [item.id for item in stored])
+    items = []
+    for item in stored:
+        places = located.get(item.id, [])
+        cell = next((place for place in places if place.get("location_type") == "box_cell"), None)
+        reel = next((place for place in places if place.get("location_type") == "tape_reel"), None)
+        chosen = cell or reel or {}
+        items.append(
+            ItemSnap(
+                id=item.id,
+                lcsc_code=item.lcsc_code or "",
+                mpn=item.mpn or "",
+                name=item.name or "",
+                brand=item.brand or "",
+                footprint=item.footprint or "",
+                category=item.category or "",
+                value=item.value or "",
+                params=item.params or "",
+                quantity=item.quantity or 0,
+                box_name=chosen.get("box_name") or "",
+                row=None if cell is None else cell.get("row"),
+                col=None if cell is None else cell.get("col"),
+                places=places,
+            )
         )
-        for item, box_name in item_rows
-    ]
     lines = db.scalars(
         select(ProjectLine)
         .where(ProjectLine.project_id == project.id)

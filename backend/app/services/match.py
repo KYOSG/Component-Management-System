@@ -35,6 +35,7 @@ class ItemSnap:
     box_name: str = ""
     row: int | None = None
     col: int | None = None
+    places: list = field(default_factory=list)
 
 
 @dataclass
@@ -390,6 +391,7 @@ def _brief(item: ItemSnap, suitable: bool, reason: str, risks: list[str]) -> dic
         "box_name": item.box_name,
         "row": item.row,
         "col": item.col,
+        "places": item.places,
         "suitable": suitable,
         "reason": reason,
         "risks": risks,

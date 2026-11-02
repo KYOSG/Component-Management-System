@@ -46,7 +46,22 @@ def map_product(result: dict, catalog: SpecCatalog) -> dict:
         "image_url": image_url,
         "mall_stock": result.get("stockNumber"),
         "mall_price": mall_price,
+        "unit_price": _highest_price(prices),
     }
+
+
+def _highest_price(prices) -> float | None:
+    best: float | None = None
+    for row in prices or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            number = round(float(row.get("productPrice")), 6)
+        except (TypeError, ValueError):
+            continue
+        if best is None or number > best:
+            best = number
+    return best
 
 
 def fetch_lcsc(code: str, catalog: SpecCatalog) -> dict:
