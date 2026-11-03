@@ -10,7 +10,7 @@ SECRET_FILE_NAME = "secret_key"
 
 class Settings:
     def __init__(self) -> None:
-        self.database_url = os.getenv("DATABASE_URL", "sqlite:///./data/app.db")
+        self.database_url = sqlite_only(os.getenv("DATABASE_URL", "sqlite:///./data/app.db"))
         self.secret_key = os.getenv("SECRET_KEY", "").strip() or load_or_create_secret(self.database_url)
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
@@ -23,6 +23,13 @@ class Settings:
     @property
     def ai_enabled(self) -> bool:
         return bool(self.deepseek_api_key)
+
+
+def sqlite_only(url: str) -> str:
+    url = url.strip()
+    if not url.startswith("sqlite:///"):
+        raise RuntimeError("DATABASE_URL 只支持 SQLite，例如 sqlite:///./data/app.db")
+    return url
 
 
 def secret_file(database_url: str) -> Path:

@@ -1,0 +1,150 @@
+/*
+ * 设计变量。颜色、圆角、阴影只在这里改。
+ * 页面和组件里用 var(--cms-*)，Element Plus 的变量也从这里取值。
+ */
+:root {
+  /* 品牌色 */
+  --cms-primary: #4f46e5;
+  --cms-primary-strong: #4338ca;
+  --cms-primary-soft: #eef2ff;
+  --cms-primary-line: #c7d2fe;
+  --cms-accent: #06b6d4;
+
+  /* 状态色 */
+  --cms-success: #16a34a;
+  --cms-warning: #d97706;
+  --cms-danger: #dc2626;
+  --cms-info: #64748b;
+  --cms-success-text: #15803d;
+  --cms-warning-text: #b45309;
+  --cms-warning-soft: #fffbeb;
+  --cms-danger-soft: #fef2f2;
+
+  /* 中性色 */
+  --cms-bg: #f5f7fb;
+  --cms-surface: #ffffff;
+  --cms-surface-muted: #f8fafc;
+  --cms-border: #e2e8f0;
+  --cms-border-soft: #eef2f7;
+  --cms-text: #0f172a;
+  --cms-text-2: #334155;
+  --cms-muted: #64748b;
+  --cms-faint: #94a3b8;
+
+  /* 形状 */
+  --cms-radius-sm: 8px;
+  --cms-radius: 12px;
+  --cms-radius-lg: 16px;
+  --cms-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --cms-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.06);
+  --cms-shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --cms-ring: 0 0 0 3px rgba(79, 70, 229, 0.18);
+
+  --cms-font: "Inter", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --cms-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+
+/* Element Plus 变量映射。浅色、深色档由主色自动混出。 */
+:root {
+  --el-color-primary: var(--cms-primary);
+  --el-color-success: var(--cms-success);
+  --el-color-warning: var(--cms-warning);
+  --el-color-danger: var(--cms-danger);
+  --el-color-error: var(--cms-danger);
+  --el-color-info: var(--cms-info);
+
+  --el-text-color-primary: var(--cms-text);
+  --el-text-color-regular: var(--cms-text-2);
+  --el-text-color-secondary: var(--cms-muted);
+  --el-text-color-placeholder: var(--cms-faint);
+  --el-border-color: #d9e0ea;
+  --el-border-color-light: var(--cms-border);
+  --el-border-color-lighter: var(--cms-border-soft);
+  --el-border-color-extra-light: #f3f6fa;
+  --el-fill-color-light: #f1f5f9;
+  --el-fill-color-lighter: var(--cms-surface-muted);
+  --el-bg-color-page: var(--cms-bg);
+
+  --el-border-radius-base: var(--cms-radius-sm);
+  --el-border-radius-small: 6px;
+  --el-font-family: var(--cms-font);
+
+  --el-color-primary-light-3: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
+  --el-color-primary-light-5: color-mix(in srgb, var(--el-color-primary) 50%, #fff);
+  --el-color-primary-light-7: color-mix(in srgb, var(--el-color-primary) 30%, #fff);
+  --el-color-primary-light-8: color-mix(in srgb, var(--el-color-primary) 20%, #fff);
+  --el-color-primary-light-9: color-mix(in srgb, var(--el-color-primary) 10%, #fff);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--el-color-primary) 80%, #000);
+  --el-color-success-light-3: color-mix(in srgb, var(--el-color-success) 70%, #fff);
+  --el-color-success-light-5: color-mix(in srgb, var(--el-color-success) 50%, #fff);
+  --el-color-success-light-7: color-mix(in srgb, var(--el-color-success) 30%, #fff);
+  --el-color-success-light-8: color-mix(in srgb, var(--el-color-success) 20%, #fff);
+  --el-color-success-light-9: color-mix(in srgb, var(--el-color-success) 10%, #fff);
+  --el-color-success-dark-2: color-mix(in srgb, var(--el-color-success) 80%, #000);
+  --el-color-warning-light-3: color-mix(in srgb, var(--el-color-warning) 70%, #fff);
+  --el-color-warning-light-5: color-mix(in srgb, var(--el-color-warning) 50%, #fff);
+  --el-color-warning-light-7: color-mix(in srgb, var(--el-color-warning) 30%, #fff);
+  --el-color-warning-light-8: color-mix(in srgb, var(--el-color-warning) 20%, #fff);
+  --el-color-warning-light-9: color-mix(in srgb, var(--el-color-warning) 10%, #fff);
+  --el-color-warning-dark-2: color-mix(in srgb, var(--el-color-warning) 80%, #000);
+  --el-color-danger-light-3: color-mix(in srgb, var(--el-color-danger) 70%, #fff);
+  --el-color-danger-light-5: color-mix(in srgb, var(--el-color-danger) 50%, #fff);
+  --el-color-danger-light-7: color-mix(in srgb, var(--el-color-danger) 30%, #fff);
+  --el-color-danger-light-8: color-mix(in srgb, var(--el-color-danger) 20%, #fff);
+  --el-color-danger-light-9: color-mix(in srgb, var(--el-color-danger) 10%, #fff);
+  --el-color-danger-dark-2: color-mix(in srgb, var(--el-color-danger) 80%, #000);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+  --el-color-info-light-3: color-mix(in srgb, var(--el-color-info) 70%, #fff);
+  --el-color-info-light-5: color-mix(in srgb, var(--el-color-info) 50%, #fff);
+  --el-color-info-light-7: color-mix(in srgb, var(--el-color-info) 30%, #fff);
+  --el-color-info-light-8: color-mix(in srgb, var(--el-color-info) 20%, #fff);
+  --el-color-info-light-9: color-mix(in srgb, var(--el-color-info) 10%, #fff);
+  --el-color-info-dark-2: color-mix(in srgb, var(--el-color-info) 80%, #000);
+}
+
+/* 组件级微调，只改变量，不改结构 */
+.el-card {
+  --el-card-border-radius: var(--cms-radius);
+}
+
+.el-dialog {
+  --el-dialog-border-radius: var(--cms-radius-lg);
+}
+
+.el-message-box {
+  --el-messagebox-border-radius: var(--cms-radius-lg);
+}
+
+.el-table {
+  --el-table-header-bg-color: var(--cms-surface-muted);
+  --el-table-header-text-color: var(--cms-muted);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--cms-primary) 5%, #fff);
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+}
+
+.el-tag {
+  --el-tag-border-radius: 6px;
+}
+
+.el-button {
+  font-weight: 500;
+}
+
+.el-upload-dragger {
+  border-radius: var(--cms-radius);
+  background: var(--cms-surface-muted);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.el-upload-dragger:hover,
+.el-upload-dragger.is-dragover {
+  background: var(--cms-primary-soft);
+}

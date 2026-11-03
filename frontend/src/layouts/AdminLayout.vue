@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api'
+import BrandMark from '../components/BrandMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +18,7 @@ const active = computed(() => {
 })
 
 const title = computed(() => route.meta.title || '电子元件库')
+const initial = computed(() => (email.value || '?').slice(0, 1).toUpperCase())
 
 onMounted(async () => {
   const { data } = await http.get('/auth/me')
@@ -28,13 +30,24 @@ async function logout() {
   await http.post('/auth/logout')
   router.push('/login')
 }
+
+function onUserCommand(command) {
+  if (command === 'password') router.push('/password')
+  if (command === 'logout') logout()
+}
 </script>
 
 <template>
   <el-container class="shell">
-    <el-aside class="aside" width="220px">
-      <div class="brand">电子元件库</div>
-      <el-menu :key="isAdmin ? 'admin' : 'user'" :default-active="active" :default-openeds="['settings']" router>
+    <el-aside class="aside" width="232px">
+      <BrandMark />
+      <el-menu
+        :key="isAdmin ? 'admin' : 'user'"
+        class="side-menu"
+        :default-active="active"
+        :default-openeds="['settings']"
+        router
+      >
         <el-menu-item index="/items">
           <el-icon><Goods /></el-icon>
           <span>物料库</span>
@@ -68,14 +81,26 @@ async function logout() {
     <el-container>
       <el-header class="header">
         <h2>{{ title }}</h2>
-        <div>
-          <span class="muted">{{ email }}</span>
-          <el-button link type="primary" @click="router.push('/password')">修改密码</el-button>
-          <el-button link type="primary" @click="logout">退出</el-button>
-        </div>
+        <el-dropdown trigger="click" @command="onUserCommand">
+          <button type="button" class="user-chip">
+            <span class="user-avatar">{{ initial }}</span>
+            <span class="user-email">{{ email }}</span>
+            <el-icon><ArrowDown /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="password" icon="Lock">修改密码</el-dropdown-item>
+              <el-dropdown-item command="logout" icon="SwitchButton" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </el-header>
       <el-main class="main">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>

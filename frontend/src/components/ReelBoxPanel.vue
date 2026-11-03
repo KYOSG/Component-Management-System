@@ -54,56 +54,41 @@ const HOLES = [
 
         <!-- Reel disc (SVG, always 80×80 px) -->
         <div class="reel-disc" :class="{ 'reel-disc--occupied': slot.item && !slot.dimmed }">
-          <svg class="reel-svg" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <!-- 颜色在下方 .reel-svg 的 CSS 变量里，.on 表示有物料且未被筛掉 -->
+          <svg
+            class="reel-svg"
+            :class="{ on: slot.item && !slot.dimmed }"
+            viewBox="0 0 80 80"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <!-- 1. Outer disc flange -->
             <circle
+              class="reel-flange"
               cx="40" cy="40" r="38"
-              :fill="slot.item && !slot.dimmed ? '#e8eaf6' : '#f2f4fb'"
-              :stroke="slot.item && !slot.dimmed ? '#7986cb' : '#c5ccdf'"
               :stroke-width="slot.item ? '2.5' : '2'"
               :stroke-dasharray="slot.item ? null : '5 3'"
             />
 
             <!-- 2. Tape winding fill (solid circle r=28 → covered by hub later) -->
-            <circle
-              cx="40" cy="40" r="28"
-              :fill="slot.item && !slot.dimmed ? '#c5cae9' : '#dde1ef'"
-            />
+            <circle class="reel-tape" cx="40" cy="40" r="28" />
 
             <!-- 3. Cross spokes -->
-            <line x1="40" y1="4" x2="40" y2="76"
-              :stroke="slot.item && !slot.dimmed ? '#7986cb' : '#c5ccdf'"
-              stroke-width="3" stroke-linecap="round"
-            />
-            <line x1="4" y1="40" x2="76" y2="40"
-              :stroke="slot.item && !slot.dimmed ? '#7986cb' : '#c5ccdf'"
-              stroke-width="3" stroke-linecap="round"
-            />
+            <line class="reel-spoke" x1="40" y1="4" x2="40" y2="76" stroke-width="3" stroke-linecap="round" />
+            <line class="reel-spoke" x1="4" y1="40" x2="76" y2="40" stroke-width="3" stroke-linecap="round" />
 
             <!-- 4. Hub circle (covers center of spokes; shows tape annulus between r17-r28) -->
-            <circle
-              cx="40" cy="40" r="17"
-              :fill="slot.item && !slot.dimmed ? '#e8eaf6' : '#f2f4fb'"
-              :stroke="slot.item && !slot.dimmed ? '#9fa8da' : '#d0d5e4'"
-              stroke-width="1.5"
-            />
+            <circle class="reel-hub" cx="40" cy="40" r="17" stroke-width="1.5" />
 
             <!-- 5. Sprocket holes (six dots at r=32) -->
             <circle
               v-for="([hx, hy], i) in HOLES" :key="i"
+              class="reel-hole"
               :cx="hx" :cy="hy" r="3.5"
-              :fill="slot.item && !slot.dimmed ? '#5c6bc0' : '#bbbdcf'"
             />
 
             <!-- 6. Centre spindle -->
-            <circle cx="40" cy="40" r="9"
-              fill="white"
-              :stroke="slot.item && !slot.dimmed ? '#9fa8da' : '#c5ccdf'"
-              stroke-width="1.5"
-            />
-            <circle cx="40" cy="40" r="4.5"
-              :fill="slot.item && !slot.dimmed ? '#9fa8da' : '#d0d5e4'"
-            />
+            <circle class="reel-spindle" cx="40" cy="40" r="9" stroke-width="1.5" />
+            <circle class="reel-pin" cx="40" cy="40" r="4.5" />
 
           </svg>
           <!-- Slot number badge below disc -->
@@ -193,35 +178,34 @@ const HOLES = [
   grid-column: 1 / -1;
   margin: 4px 0 0;
   font-size: 13px;
-  color: #8b93a7;
+  color: var(--cms-muted);
 }
 
 /* ── Card ── */
 .reel-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid #d5daf0;
-  border-radius: 14px;
-  background: #fff;
+  border: 1px solid var(--cms-border);
+  border-radius: var(--cms-radius);
+  background: var(--cms-surface);
   overflow: hidden;
   transition: box-shadow 0.15s, border-color 0.15s;
 }
 
 .reel-card:hover {
-  border-color: #9fa8da;
-  box-shadow: 0 2px 10px rgba(63, 81, 181, 0.1);
+  border-color: var(--cms-primary-line);
+  box-shadow: var(--cms-shadow);
 }
 
 .reel-card--empty {
-  background: #fafbff;
-  border-color: #dde2f0;
+  background: var(--cms-surface-muted);
+  border-color: var(--el-border-color);
   border-style: dashed;
 }
 
 .reel-card--empty:hover {
-  border-color: #9fa8da;
-  border-style: dashed;
-  box-shadow: 0 2px 8px rgba(63, 81, 181, 0.08);
+  border-color: var(--cms-primary-line);
+  box-shadow: var(--cms-shadow-sm);
 }
 
 .reel-card--dimmed {
@@ -230,8 +214,8 @@ const HOLES = [
 }
 
 .reel-card--hit {
-  border-color: #3f51b5;
-  box-shadow: 0 0 0 2px #c5cae9;
+  border-color: var(--cms-primary);
+  box-shadow: var(--cms-ring);
 }
 
 /* ── Clickable face ── */
@@ -250,9 +234,9 @@ const HOLES = [
 }
 
 .reel-face:focus-visible {
-  outline: 2px solid #3f51b5;
+  outline: 2px solid var(--cms-primary);
   outline-offset: -2px;
-  border-radius: 14px;
+  border-radius: var(--cms-radius);
 }
 
 /* ── SVG disc ── */
@@ -265,21 +249,60 @@ const HOLES = [
   gap: 4px;
 }
 
+/* 料卷配色：空槽用中性灰，有物料（.on）用主色深浅 */
 .reel-svg {
+  --reel-face: var(--cms-surface-muted);
+  --reel-line: var(--el-border-color);
+  --reel-tape: var(--cms-border);
+  --reel-hole: var(--cms-faint);
   width: 80px;
   height: 80px;
   display: block;
 }
 
+.reel-svg.on {
+  --reel-face: var(--cms-primary-soft);
+  --reel-line: color-mix(in srgb, var(--cms-primary) 55%, var(--cms-surface));
+  --reel-tape: var(--cms-primary-line);
+  --reel-hole: var(--cms-primary);
+}
+
+.reel-flange,
+.reel-hub {
+  fill: var(--reel-face);
+  stroke: var(--reel-line);
+}
+
+.reel-tape {
+  fill: var(--reel-tape);
+}
+
+.reel-spoke {
+  stroke: var(--reel-line);
+}
+
+.reel-hole {
+  fill: var(--reel-hole);
+}
+
+.reel-spindle {
+  fill: var(--cms-surface);
+  stroke: var(--reel-line);
+}
+
+.reel-pin {
+  fill: var(--reel-line);
+}
+
 .reel-slot-no {
   font-size: 11px;
   font-weight: 700;
-  color: #9fa8c5;
+  color: var(--cms-faint);
   line-height: 1;
 }
 
 .reel-disc--occupied .reel-slot-no {
-  color: #5c6bc0;
+  color: var(--cms-primary);
 }
 
 /* ── Info panel ── */
@@ -300,7 +323,7 @@ const HOLES = [
 .reel-cat {
   font-size: 11px;
   font-weight: 700;
-  color: #5c6bc0;
+  color: var(--cms-primary);
   line-height: 1.3;
 }
 
@@ -308,7 +331,7 @@ const HOLES = [
 .reel-val {
   font-size: 15px;
   font-weight: 700;
-  color: #1a1f3c;
+  color: var(--cms-text);
   line-height: 1.35;
   margin-bottom: 1px;
   white-space: nowrap;
@@ -319,7 +342,7 @@ const HOLES = [
 /* Footprint */
 .reel-fp {
   font-size: 12px;
-  color: #6679b8;
+  color: var(--cms-text-2);
   margin-bottom: 2px;
 }
 
@@ -327,7 +350,7 @@ const HOLES = [
 .reel-spec {
   display: block;
   font-size: 12px;
-  color: #4b556c;
+  color: var(--cms-text-2);
   line-height: 1.4;
 }
 
@@ -336,7 +359,7 @@ const HOLES = [
   display: block;
   font-size: 12px;
   font-weight: 650;
-  color: #303f9f;
+  color: var(--cms-primary-strong);
   margin-top: 3px;
 }
 
@@ -356,9 +379,10 @@ const HOLES = [
 }
 
 .reel-code {
+  font-family: var(--cms-mono);
   font-size: 11px;
   font-weight: 650;
-  color: #667085;
+  color: var(--cms-muted);
   word-break: break-all;
   flex: 1 1 auto;
 }
@@ -367,14 +391,14 @@ const HOLES = [
   flex: 0 0 auto;
   font-size: 11px;
   font-weight: 600;
-  color: #8b93a7;
+  color: var(--cms-faint);
 }
 
 .reel-worth {
   flex: 0 0 auto;
   font-size: 11px;
   font-weight: 700;
-  color: #303f9f;
+  color: var(--cms-primary-strong);
 }
 
 /* Thumbnail */
@@ -382,9 +406,9 @@ const HOLES = [
   width: 56px;
   height: 56px;
   margin-top: 6px;
-  border-radius: 8px;
+  border-radius: var(--cms-radius-sm);
   overflow: hidden;
-  background: #f4f5fb;
+  background: var(--cms-surface-muted);
 }
 
 .reel-photo .el-image {
@@ -398,7 +422,7 @@ const HOLES = [
   justify-content: center;
   width: 100%;
   height: 100%;
-  color: #b0bbd6;
+  color: var(--cms-faint);
   font-size: 18px;
 }
 
@@ -406,7 +430,7 @@ const HOLES = [
 .reel-dim {
   padding-top: 24px;
   font-size: 12px;
-  color: #9fa8c5;
+  color: var(--cms-faint);
   text-align: center;
 }
 
@@ -422,24 +446,24 @@ const HOLES = [
 
 .reel-plus-icon {
   font-size: 22px;
-  color: #c5cce0;
+  color: var(--el-border-color);
 }
 
 .reel-empty-label {
   font-size: 12px;
-  color: #9fa8c5;
+  color: var(--cms-faint);
 }
 
 .reel-empty-hint {
   font-size: 11px;
-  color: #c5cce0;
+  color: var(--el-border-color);
 }
 
 /* ── Action buttons ── */
 .reel-actions {
   display: flex;
   gap: 0;
-  border-top: 1px solid #eef0fa;
+  border-top: 1px solid var(--cms-border-soft);
 }
 
 .reel-btn {
@@ -447,22 +471,23 @@ const HOLES = [
   border: 0;
   background: transparent;
   padding: 7px 0;
+  font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.12s;
-  color: #5c6bc0;
+  transition: background 0.12s, color 0.12s;
+  color: var(--cms-primary);
 }
 
 .reel-btn:first-child {
-  border-right: 1px solid #eef0fa;
+  border-right: 1px solid var(--cms-border-soft);
 }
 
 .reel-btn--transfer:hover {
-  background: #eef0fb;
+  background: var(--cms-primary-soft);
 }
 
 .reel-btn--out:hover {
-  background: #fef3f2;
-  color: #e53935;
+  background: var(--cms-danger-soft);
+  color: var(--cms-danger);
 }
 </style>

@@ -380,8 +380,9 @@ async function confirmReplace() {
 </template>
 
 <style>
+/* 颜色统一取 theme.css 里的 --cms-* 变量 */
 .cmp-dialog {
-  border-radius: 16px;
+  border-radius: var(--cms-radius-lg);
   overflow: hidden;
 }
 .cmp-dialog .el-dialog__header {
@@ -420,31 +421,36 @@ async function confirmReplace() {
   align-items: center;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid #e6e8f0;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--cms-border);
+  border-radius: var(--cms-radius-sm);
+  background: var(--cms-surface);
   text-align: left;
   cursor: pointer;
   color: inherit;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.cmp-hit:hover {
+  border-color: var(--cms-primary-line);
 }
 .cmp-hit.on {
-  border-color: #3f51b5;
-  background: #f3f4fb;
+  border-color: var(--cms-primary);
+  background: var(--cms-primary-soft);
 }
 .cmp-hit b {
   font-size: 13px;
+  font-family: var(--cms-mono);
 }
 .cmp-hit span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 12px;
 }
 .cmp-hit em {
   font-style: normal;
-  color: #303f9f;
+  color: var(--cms-primary-strong);
   font-size: 12px;
   font-weight: 650;
 }
@@ -455,7 +461,7 @@ async function confirmReplace() {
   gap: 12px;
 }
 .cmp-footer > span {
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -473,11 +479,11 @@ async function confirmReplace() {
 }
 .cmp-title strong {
   font-size: 18px;
-  color: #1f2430;
+  color: var(--cms-text);
 }
 .cmp-title span {
   margin-left: 10px;
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 13px;
 }
 .cmp-cards {
@@ -488,34 +494,34 @@ async function confirmReplace() {
 .cmp-card,
 .cmp-empty {
   min-height: 148px;
-  border-radius: 14px;
+  border-radius: var(--cms-radius);
   padding: 16px 18px;
 }
 .cmp-card.bom {
-  background: linear-gradient(180deg, #f8f9ff 0%, #eef1fb 100%);
-  border: 1px solid #d9def5;
+  background: linear-gradient(180deg, var(--cms-surface) 0%, var(--cms-primary-soft) 100%);
+  border: 1px solid var(--cms-primary-line);
 }
 .cmp-card.lib {
-  background: linear-gradient(180deg, #f5fbf7 0%, #e7f6ee 100%);
-  border: 1px solid #cfe8d8;
+  background: linear-gradient(180deg, var(--cms-surface) 0%, color-mix(in srgb, var(--cms-success) 9%, var(--cms-surface)) 100%);
+  border: 1px solid color-mix(in srgb, var(--cms-success) 28%, var(--cms-surface));
 }
 .cmp-kicker {
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.06em;
-  color: #667085;
+  color: var(--cms-muted);
 }
 .cmp-name {
   margin-top: 8px;
   font-size: 22px;
   font-weight: 700;
   line-height: 1.3;
-  color: #1f2430;
+  color: var(--cms-text);
   word-break: break-word;
 }
 .cmp-sub {
   margin-top: 4px;
-  color: #4b556c;
+  color: var(--cms-text-2);
   font-size: 13px;
 }
 .cmp-chips {
@@ -527,8 +533,8 @@ async function confirmReplace() {
 .cmp-chips span {
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
-  color: #303f9f;
+  background: color-mix(in srgb, var(--cms-surface) 86%, transparent);
+  color: var(--cms-primary-strong);
   font-size: 12px;
   font-weight: 650;
 }
@@ -537,35 +543,36 @@ async function confirmReplace() {
   align-items: baseline;
   gap: 8px;
   margin-top: 14px;
-  color: #4b556c;
+  color: var(--cms-text-2);
   font-size: 13px;
 }
 .cmp-stock b {
   font-size: 26px;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .cmp-stock b.ok {
-  color: #067647;
+  color: var(--cms-success-text);
 }
 .cmp-stock b.low {
-  color: #b54708;
+  color: var(--cms-warning-text);
 }
 .cmp-stock em {
   margin-left: auto;
   font-style: normal;
-  color: #303f9f;
+  color: var(--cms-primary-strong);
   font-weight: 650;
 }
 .cmp-empty {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  border: 1px dashed #d0d5dd;
-  background: #fafbfc;
-  color: #667085;
+  border: 1px dashed var(--el-border-color);
+  background: var(--cms-surface-muted);
+  color: var(--cms-muted);
 }
 .cmp-empty strong {
-  color: #1f2430;
+  color: var(--cms-text);
   font-size: 16px;
 }
 .cmp-empty p {
@@ -575,37 +582,37 @@ async function confirmReplace() {
 .cmp-reason {
   margin-top: 14px;
   padding: 12px 14px;
-  border-radius: 12px;
-  background: #f8f5ff;
-  border: 1px solid #e4dff5;
+  border-radius: var(--cms-radius);
+  background: var(--cms-surface-muted);
+  border: 1px solid var(--cms-border);
 }
 .cmp-reason span {
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 12px;
 }
 .cmp-reason p {
   margin: 4px 0 0;
   line-height: 1.6;
-  color: #1f2430;
+  color: var(--cms-text);
 }
 .cmp-reason em {
   display: inline-block;
   margin: 8px 8px 0 0;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #fff4e5;
-  color: #b54708;
+  background: var(--cms-warning-soft);
+  color: var(--cms-warning-text);
   font-style: normal;
   font-size: 12px;
 }
 .cmp-summary {
   margin: 16px 0 8px;
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 13px;
 }
 .cmp-table {
-  border: 1px solid #e6e8f0;
-  border-radius: 12px;
+  border: 1px solid var(--cms-border);
+  border-radius: var(--cms-radius);
   overflow: hidden;
   max-height: min(36vh, 360px);
   overflow: auto;
@@ -626,36 +633,36 @@ async function confirmReplace() {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #f7f8fc;
-  color: #667085;
+  background: var(--cms-surface-muted);
+  color: var(--cms-muted);
   font-size: 12px;
   font-weight: 650;
 }
 .cmp-group {
   padding: 8px 14px;
-  background: #fff;
-  border-top: 1px solid #eef0f6;
-  color: #98a2b3;
+  background: var(--cms-surface);
+  border-top: 1px solid var(--cms-border-soft);
+  color: var(--cms-faint);
   font-size: 12px;
   font-weight: 650;
 }
 .cmp-row {
-  border-top: 1px solid #eef0f6;
-  background: #fff;
+  border-top: 1px solid var(--cms-border-soft);
+  background: var(--cms-surface);
 }
 .cmp-row.diff {
-  background: #fff8ef;
+  background: var(--cms-warning-soft);
 }
 .cmp-row.missing {
-  background: #fbfcff;
+  background: var(--cms-surface-muted);
 }
 .cmp-key {
-  color: #667085;
+  color: var(--cms-muted);
   font-size: 13px;
   line-height: 1.5;
 }
 .cmp-val {
-  color: #1f2430;
+  color: var(--cms-text);
   font-size: 13px;
   line-height: 1.55;
   word-break: break-word;
@@ -667,13 +674,13 @@ async function confirmReplace() {
   font-size: 12px;
   line-height: 1.5;
   text-align: right;
-  color: #98a2b3;
+  color: var(--cms-faint);
 }
 .cmp-row.same .cmp-mark {
-  color: #067647;
+  color: var(--cms-success-text);
 }
 .cmp-row.diff .cmp-mark,
 .cmp-row.missing .cmp-mark {
-  color: #b54708;
+  color: var(--cms-warning-text);
 }
 </style>

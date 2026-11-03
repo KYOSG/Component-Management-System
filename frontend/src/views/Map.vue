@@ -361,23 +361,41 @@ onMounted(async () => {
 <template>
   <div v-loading="loading">
     <div class="stats">
-      <div class="stat"><span>物料种类</span><b>{{ mapData.stats.item_count }}</b></div>
-      <div class="stat"><span>盒子数量</span><b>{{ mapData.stats.box_count }}</b></div>
-      <div class="stat"><span>库存总数</span><b>{{ mapData.stats.quantity_total }}</b></div>
-      <div class="stat"><span>库存总价值</span><b>{{ money(mapData.stats.total_value) }}</b></div>
-      <router-link class="stat stat-link" :to="{ path: '/items', query: { low_stock: '1' } }">
-        <span>低库存物料</span><b :class="{ 'stat-warn': mapData.stats.low_stock_count }">{{ mapData.stats.low_stock_count }}</b>
+      <div class="stat">
+        <span class="stat-icon"><el-icon><Collection /></el-icon></span>
+        <div><span class="stat-label">物料种类</span><b class="stat-value">{{ mapData.stats.item_count }}</b></div>
+      </div>
+      <div class="stat">
+        <span class="stat-icon"><el-icon><Box /></el-icon></span>
+        <div><span class="stat-label">盒子数量</span><b class="stat-value">{{ mapData.stats.box_count }}</b></div>
+      </div>
+      <div class="stat">
+        <span class="stat-icon"><el-icon><Histogram /></el-icon></span>
+        <div><span class="stat-label">库存总数</span><b class="stat-value">{{ mapData.stats.quantity_total }}</b></div>
+      </div>
+      <div class="stat">
+        <span class="stat-icon"><el-icon><Money /></el-icon></span>
+        <div><span class="stat-label">库存总价值</span><b class="stat-value">{{ money(mapData.stats.total_value) }}</b></div>
+      </div>
+      <router-link
+        class="stat stat-link"
+        :class="{ 'stat-warn': mapData.stats.low_stock_count }"
+        :to="{ path: '/items', query: { low_stock: '1' } }"
+      >
+        <span class="stat-icon"><el-icon><Warning /></el-icon></span>
+        <div><span class="stat-label">低库存物料</span><b class="stat-value">{{ mapData.stats.low_stock_count }}</b></div>
       </router-link>
     </div>
     <div class="page-card" style="margin-bottom: 16px">
       <div class="toolbar">
-        <el-button type="primary" @click="openCreateBox">新建物料盒</el-button>
         <el-select v-model="category" clearable placeholder="按类目筛选" style="width: 180px" @change="load">
           <el-option v-for="name in mapData.categories" :key="name" :label="name" :value="name" />
         </el-select>
         <el-select v-model="projectId" clearable placeholder="按项目高亮位号" style="width: 260px" @change="load">
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
+        <span class="spacer" />
+        <el-button type="primary" icon="Plus" @click="openCreateBox">新建物料盒</el-button>
       </div>
       <el-empty v-if="!mapData.boxes.length" description="还没有物料盒，先新建一个" />
     </div>
@@ -386,6 +404,9 @@ onMounted(async () => {
         <div class="box-title" @click="toggleBox(box.id)">
           <div class="box-heading">
             <span class="box-caret" :class="{ open: expanded[box.id] }"></span>
+            <span class="box-icon">
+              <el-icon><Coin v-if="box.box_type === 'reel'" /><Grid v-else /></el-icon>
+            </span>
             <div>
               <strong>{{ box.name }}</strong>
               <span v-if="box.box_type === 'reel'" class="muted"> · 料卷盒 · {{ occupiedCount(box) }}/{{ box.slot_count }} 卷</span>
@@ -394,8 +415,8 @@ onMounted(async () => {
             </div>
           </div>
           <div @click.stop>
-            <el-button link type="primary" @click="openEditBox(box)">编辑</el-button>
-            <el-button link type="danger" @click="removeBox(box)">删除</el-button>
+            <el-button link type="primary" icon="Edit" @click="openEditBox(box)">编辑</el-button>
+            <el-button link type="danger" icon="Delete" @click="removeBox(box)">删除</el-button>
           </div>
         </div>
         <div class="box-collapse" :class="{ open: expanded[box.id] }">
@@ -470,10 +491,15 @@ onMounted(async () => {
         </div>
       </section>
       <section class="page-card">
-        <h3>未入库</h3>
+        <div class="card-head">
+          <div>
+            <h3>未入库</h3>
+            <p>还没放进物料盒的物料，点「流转」放进盒子。</p>
+          </div>
+        </div>
         <el-table :data="visibleUnboxed" size="small">
           <el-table-column label="编号" width="120">
-            <template #default="{ row }">{{ row.lcsc_code || '—' }}</template>
+            <template #default="{ row }"><span class="mono">{{ row.lcsc_code || '—' }}</span></template>
           </el-table-column>
           <el-table-column prop="mpn" label="型号" min-width="160" />
           <el-table-column prop="name" label="名称" min-width="160" />
@@ -495,7 +521,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="操作" width="90">
             <template #default="{ row }">
-              <el-button size="small" @click="openTransfer(row)">流转</el-button>
+              <el-button link type="primary" @click="openTransfer(row)">流转</el-button>
             </template>
           </el-table-column>
           <template #empty>
@@ -544,10 +570,10 @@ onMounted(async () => {
         </el-descriptions>
       </template>
       <template #footer>
-        <el-button type="warning" :disabled="!activePlace?.quantity" @click="checkoutPlace">出库</el-button>
-        <el-button :disabled="!activePlace?.quantity" @click="openTransfer(activePlace)">流转</el-button>
+        <el-button type="danger" plain @click="removeItem(activePlace.item)">删除</el-button>
         <el-button @click="clearPlace">移出</el-button>
-        <el-button type="danger" @click="removeItem(activePlace.item)">删除</el-button>
+        <el-button :disabled="!activePlace?.quantity" @click="openTransfer(activePlace)">流转</el-button>
+        <el-button type="warning" plain :disabled="!activePlace?.quantity" @click="checkoutPlace">出库</el-button>
         <el-button type="primary" @click="editItem(activePlace.item)">编辑</el-button>
       </template>
     </el-dialog>

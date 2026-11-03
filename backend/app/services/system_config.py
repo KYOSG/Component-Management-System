@@ -71,7 +71,7 @@ def read_settings(db: Session) -> SystemSettings:
         try:
             fallback_location, fallback_name = database.split_sqlite(database.current_url)
         except ValueError as exc:
-            raise DatabaseSwitchError("当前数据库不是 SQLite 文件") from exc
+            raise DatabaseSwitchError("当前数据库没有对应的文件") from exc
         location = location or fallback_location
         name = name or fallback_name
     env_key, env_url, env_model = _env_ai()

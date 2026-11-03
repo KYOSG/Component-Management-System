@@ -256,12 +256,13 @@ onBeforeUnmount(() => {
   <div v-loading="loading" class="stack">
     <div v-if="project" class="page-card">
       <div class="toolbar">
-        <el-button @click="router.push('/projects')">返回列表</el-button>
-        <el-button type="primary" :loading="recommending" @click="rematch">重新匹配</el-button>
-        <el-button type="success" @click="addAll">全部加入物料库</el-button>
-        <el-button type="warning" @click="checkout">一键出库</el-button>
-        <el-button type="danger" plain @click="removeProject">删除</el-button>
-        <el-button @click="router.push({ path: '/map', query: { project: project.id } })">在物料盒地图中查看</el-button>
+        <el-button icon="ArrowLeft" @click="router.push('/projects')">返回列表</el-button>
+        <el-button icon="Grid" @click="router.push({ path: '/map', query: { project: project.id } })">在物料盒地图中查看</el-button>
+        <span class="spacer" />
+        <el-button type="danger" plain icon="Delete" @click="removeProject">删除</el-button>
+        <el-button type="warning" plain @click="checkout">一键出库</el-button>
+        <el-button type="success" plain @click="addAll">全部加入物料库</el-button>
+        <el-button type="primary" icon="Refresh" :loading="recommending" @click="rematch">重新匹配</el-button>
       </div>
       <el-alert
         v-if="!project.ai_enabled"
@@ -298,7 +299,7 @@ onBeforeUnmount(() => {
         :closable="false"
         style="margin-bottom: 16px"
       />
-      <el-table :data="project.lines" stripe>
+      <el-table :data="project.lines">
         <el-table-column label="位号" min-width="120">
           <template #default="{ row }">{{ row.designators || '—' }}</template>
         </el-table-column>
@@ -306,7 +307,7 @@ onBeforeUnmount(() => {
           <template #default="{ row }">单板 {{ row.quantity_per_board }} / 需求 {{ row.quantity_required }}</template>
         </el-table-column>
         <el-table-column label="立创编号" width="120">
-          <template #default="{ row }">{{ row.lcsc_code || '—' }}</template>
+          <template #default="{ row }"><span class="mono">{{ row.lcsc_code || '—' }}</span></template>
         </el-table-column>
         <el-table-column label="类型 / 标称值" min-width="160">
           <template #default="{ row }">
@@ -319,7 +320,7 @@ onBeforeUnmount(() => {
         <el-table-column prop="footprint" label="封装" min-width="140" show-overflow-tooltip />
         <el-table-column label="料库状态" width="110">
           <template #default="{ row }">
-            <el-tag v-if="MATCH_STATUS[row.match_status]" :type="MATCH_STATUS[row.match_status].type">
+            <el-tag v-if="MATCH_STATUS[row.match_status]" :type="MATCH_STATUS[row.match_status].type" effect="light" round>
               {{ MATCH_STATUS[row.match_status].label }}
             </el-tag>
           </template>
@@ -344,12 +345,12 @@ onBeforeUnmount(() => {
             <div class="ops">
               <el-button size="small" @click="openCompare(row)">替换</el-button>
               <el-button v-if="canAccept(row)" size="small" type="primary" @click="acceptSuggestion(row)">使用替换器件</el-button>
-              <el-button v-if="canAdopt(row)" size="small" type="primary" @click="adopt(row)">
+              <el-button v-if="canAdopt(row)" size="small" type="primary" plain @click="adopt(row)">
                 {{ row.lcsc_code ? '按编号加入' : '加入物料库' }}
               </el-button>
-              <el-button v-if="canCheckout(row)" size="small" type="warning" @click="checkoutLine(row)">出库</el-button>
-              <el-button v-if="canCheckout(row)" size="small" type="success" @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
-              <el-button v-if="canCheckout(row)" size="small" type="danger" @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="warning" plain @click="checkoutLine(row)">出库</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="success" plain @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="danger" plain @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
             </div>
           </template>
         </el-table-column>

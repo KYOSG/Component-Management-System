@@ -254,7 +254,7 @@ onMounted(() => load())
     <div class="spec-layout">
     <aside class="page-card spec-side">
       <div class="toolbar">
-        <el-button type="primary" @click="createCategory">新增类目</el-button>
+        <el-button type="primary" icon="Plus" @click="createCategory">新增类目</el-button>
       </div>
       <div
         v-for="(item, index) in categories"
@@ -359,21 +359,22 @@ onMounted(() => load())
 .spec-help {
   margin-bottom: 16px;
   padding: 14px 18px;
-  border: 1px solid #c5cae9;
-  border-left: 4px solid var(--el-color-primary);
-  border-radius: 10px;
-  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--cms-primary-line);
+  border-left: 4px solid var(--cms-primary);
+  border-radius: var(--cms-radius);
+  background: var(--cms-primary-soft);
 }
 
 .spec-help-title {
   margin-bottom: 8px;
-  color: var(--el-color-primary-dark-2);
+  color: var(--cms-primary-strong);
   font-weight: 700;
 }
 
 .spec-help p {
   margin: 0;
-  color: #1f2430;
+  color: var(--cms-text-2);
+  font-size: 13px;
   line-height: 1.7;
 }
 
@@ -405,20 +406,31 @@ onMounted(() => load())
   margin: 0;
   padding: 4px 4px 4px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cms-radius-sm);
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 0.15s;
 }
 
 .spec-item + .spec-item {
   margin-top: 4px;
 }
 
+.spec-item:hover {
+  background: var(--cms-surface-muted);
+}
+
+.spec-item:focus-visible {
+  outline: none;
+  box-shadow: var(--cms-ring);
+}
+
 .spec-item.active {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
+  background: var(--cms-primary-soft);
+  color: var(--cms-primary);
+  font-weight: 600;
 }
 
 .spec-item-actions {

@@ -74,14 +74,18 @@ onMounted(load)
 
 <template>
   <div class="page-card">
-    <div class="toolbar">
-      <el-button type="primary" @click="create">新增账号</el-button>
+    <div class="card-head">
+      <div>
+        <h3>账号列表</h3>
+        <p>每个账号的物料、物料盒和项目互相隔离。</p>
+      </div>
+      <el-button type="primary" icon="Plus" @click="create">新增账号</el-button>
     </div>
-    <el-table v-loading="loading" :data="rows" stripe>
+    <el-table v-loading="loading" :data="rows">
       <el-table-column prop="email" label="账号" min-width="180" />
       <el-table-column label="身份" width="120">
         <template #default="{ row }">
-          <el-tag :type="row.is_admin ? 'danger' : 'info'">{{ row.is_admin ? '管理员' : '普通用户' }}</el-tag>
+          <el-tag :type="row.is_admin ? 'primary' : 'info'" effect="light" round>{{ row.is_admin ? '管理员' : '普通用户' }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="创建时间" min-width="170">
@@ -89,8 +93,8 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="edit(row)">编辑</el-button>
-          <el-button link type="danger" :disabled="row.id === currentId" @click="remove(row)">删除</el-button>
+          <el-button link type="primary" icon="Edit" @click="edit(row)">编辑</el-button>
+          <el-button link type="danger" icon="Delete" :disabled="row.id === currentId" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
       <template #empty>

@@ -38,7 +38,7 @@ def sqlite_url(location: str, name: str) -> str:
 def split_sqlite(url: str) -> tuple[str, str]:
     path = sqlite_path(url)
     if path is None:
-        raise ValueError("当前数据库不是 SQLite 文件")
+        raise ValueError("当前数据库没有对应的文件")
     return str(path.parent), path.name
 
 
@@ -90,15 +90,13 @@ def write_pointer(location: str, name: str) -> None:
 def make_engine(url: str | None = None):
     database_url = url or get_settings().database_url
     ensure_sqlite_directory(database_url)
-    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
-    engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
-    if database_url.startswith("sqlite"):
+    engine = create_engine(database_url, connect_args={"check_same_thread": False}, pool_pre_ping=True)
 
-        @event.listens_for(engine, "connect")
-        def enable_foreign_keys(dbapi_conn, _record) -> None:
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(dbapi_conn, _record) -> None:
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
     return engine
 

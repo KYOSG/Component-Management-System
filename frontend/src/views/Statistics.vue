@@ -25,30 +25,76 @@ function defaultRange() {
   return [formatDay(start), formatDay(end)]
 }
 
-function option(title, points, kind) {
+// 图表颜色从 theme.css 读取，改主题时这里不用动
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
+function alpha(hex, opacity) {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex)
+  if (!match) return hex
+  const n = parseInt(match[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${opacity})`
+}
+
+function palette() {
   return {
-    title: { text: title, left: 8, textStyle: { fontSize: 15, fontWeight: 650, color: '#1f2430' } },
+    primary: cssVar('--cms-primary', '#4f46e5'),
+    warning: cssVar('--cms-warning', '#d97706'),
+    muted: cssVar('--cms-muted', '#64748b'),
+    border: cssVar('--cms-border-soft', '#eef2f7'),
+    font: cssVar('--cms-font', 'sans-serif'),
+  }
+}
+
+function option(points, kind, colors) {
+  const bar = kind === 'bar'
+  const color = bar ? colors.warning : colors.primary
+  return {
+    textStyle: { fontFamily: colors.font },
     tooltip: { trigger: 'axis' },
-    grid: { left: 56, right: 20, top: 48, bottom: 32 },
-    xAxis: { type: 'category', data: points.map((point) => point.date.slice(5)), boundaryGap: kind === 'bar' },
-    yAxis: { type: 'value', minInterval: kind === 'line-count' || kind === 'bar' ? 1 : 0 },
+    grid: { left: 8, right: 16, top: 16, bottom: 8, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: points.map((point) => point.date.slice(5)),
+      boundaryGap: bar,
+      axisLine: { lineStyle: { color: colors.border } },
+      axisTick: { show: false },
+      axisLabel: { color: colors.muted },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: kind === 'line-count' || bar ? 1 : 0,
+      axisLabel: { color: colors.muted },
+      splitLine: { lineStyle: { color: colors.border } },
+    },
     series: [
       {
-        type: kind === 'bar' ? 'bar' : 'line',
-        smooth: kind !== 'bar',
+        type: bar ? 'bar' : 'line',
+        smooth: !bar,
         showSymbol: false,
+        barMaxWidth: 18,
         data: points.map((point) => point.value),
-        itemStyle: { color: kind === 'bar' ? '#f59e0b' : '#3f51b5' },
-        areaStyle: kind === 'bar' ? undefined : { color: 'rgba(63, 81, 181, 0.12)' },
+        itemStyle: { color, borderRadius: bar ? [4, 4, 0, 0] : 0 },
+        lineStyle: { width: 2.5 },
+        areaStyle: bar
+          ? undefined
+          : {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: alpha(color, 0.22) },
+                { offset: 1, color: alpha(color, 0) },
+              ]),
+            },
       },
     ],
   }
 }
 
-function render(chart, el, title, points, kind) {
+function render(chart, el, points, kind, colors) {
   if (!el) return chart
   const instance = chart || echarts.init(el)
-  instance.setOption(option(title, points, kind), true)
+  instance.setOption(option(points, kind, colors), true)
   return instance
 }
 
@@ -63,10 +109,11 @@ async function load() {
       http.get('/statistics/consumption', { params }),
     ])
     await nextTick()
+    const colors = palette()
     const next = []
-    next[0] = render(charts.value[0], valueEl.value, '库存总价值', valueRes.data.points, 'line')
-    next[1] = render(charts.value[1], countEl.value, '库存元件数', countRes.data.points, 'line-count')
-    next[2] = render(charts.value[2], consumptionEl.value, '消耗元件数', usedRes.data.points, 'bar')
+    next[0] = render(charts.value[0], valueEl.value, valueRes.data.points, 'line', colors)
+    next[1] = render(charts.value[1], countEl.value, countRes.data.points, 'line-count', colors)
+    next[2] = render(charts.value[2], consumptionEl.value, usedRes.data.points, 'bar', colors)
     charts.value = next
   } finally {
     loading.value = false
@@ -91,7 +138,11 @@ onBeforeUnmount(() => {
 <template>
   <div v-loading="loading" class="stack">
     <div class="page-card">
-      <div class="toolbar">
+      <div class="card-head">
+        <div>
+          <h3>统计区间</h3>
+          <p>默认最近一个月。消耗只统计项目 BOM 的一键出库、单行出库，以及物料盒里的出库。流转不会改变这三条曲线。</p>
+        </div>
         <el-date-picker
           v-model="range"
           type="daterange"
@@ -103,20 +154,50 @@ onBeforeUnmount(() => {
           @change="load"
         />
       </div>
-      <p class="muted">默认最近一个月。消耗只统计项目 BOM 的一键出库、单行出库，以及物料盒里的出库。流转不会改变这三条曲线。</p>
     </div>
-    <div class="page-card chart-card"><div ref="valueEl" class="chart"></div></div>
-    <div class="page-card chart-card"><div ref="countEl" class="chart"></div></div>
-    <div class="page-card chart-card"><div ref="consumptionEl" class="chart"></div></div>
+    <div class="chart-grid">
+      <section class="page-card chart-wide">
+        <h3>库存总价值</h3>
+        <div ref="valueEl" class="chart"></div>
+      </section>
+      <section class="page-card">
+        <h3>库存元件数</h3>
+        <div ref="countEl" class="chart"></div>
+      </section>
+      <section class="page-card">
+        <h3>消耗元件数</h3>
+        <div ref="consumptionEl" class="chart"></div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.chart {
-  height: 280px;
+.card-head {
+  flex-wrap: wrap;
 }
 
-.chart-card {
-  padding-bottom: 8px;
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.chart-wide {
+  grid-column: 1 / -1;
+}
+
+.chart {
+  height: 260px;
+}
+
+.chart-wide .chart {
+  height: 300px;
+}
+
+@media (max-width: 1100px) {
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

@@ -63,11 +63,17 @@ onMounted(load)
         :disabled="uploading"
       >
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-        <div>将 BOM 拖到此处，或点击上传</div>
-        <div class="muted">支持立创 EDA 的 .xlsx 和立创商城报价单 .xls</div>
+        <div class="el-upload__text">将 BOM 拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip">支持立创 EDA 的 .xlsx 和立创商城报价单 .xls</div>
       </el-upload>
     </div>
     <div class="page-card">
+      <div class="card-head">
+        <div>
+          <h3>已导入的项目</h3>
+          <p>点「查看」进入匹配结果，可以一键加入物料库或出库。</p>
+        </div>
+      </div>
       <el-table v-loading="loading" :data="rows">
         <el-table-column prop="name" label="名称" min-width="220" show-overflow-tooltip />
         <el-table-column label="格式" width="150">

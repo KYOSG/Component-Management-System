@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import http from '../api'
+import BrandMark from '../components/BrandMark.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -41,24 +42,27 @@ async function logout() {
 
 <template>
   <div class="auth-page">
-    <div class="auth-card page-card">
-      <h1>修改密码</h1>
-      <p v-if="forced" class="muted">当前是初始密码，请先修改后再使用。</p>
-      <p v-else class="muted">修改后，其他设备上的登录会失效。</p>
-      <el-form @submit.prevent="submit">
-        <el-form-item label="原密码">
-          <el-input v-model="form.old_password" type="password" show-password autocomplete="current-password" />
-        </el-form-item>
-        <el-form-item label="新密码">
-          <el-input v-model="form.new_password" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
-        </el-form-item>
-        <el-form-item label="确认新密码">
-          <el-input v-model="form.confirm" type="password" show-password autocomplete="new-password" />
-        </el-form-item>
-        <el-button type="primary" native-type="submit" :loading="loading" style="width: 100%">保存新密码</el-button>
-      </el-form>
-      <p v-if="forced"><el-button link type="primary" @click="logout">退出登录</el-button></p>
-      <p v-else><router-link to="/items">返回</router-link></p>
+    <div class="auth-panel">
+      <BrandMark />
+      <div class="auth-card page-card">
+        <h1>修改密码</h1>
+        <el-alert v-if="forced" type="warning" show-icon :closable="false" title="当前是初始密码，请先修改后再使用。" />
+        <p v-else class="muted">修改后，其他设备上的登录会失效。</p>
+        <el-form label-position="top" size="large" @submit.prevent="submit">
+          <el-form-item label="原密码">
+            <el-input v-model="form.old_password" type="password" show-password autocomplete="current-password" />
+          </el-form-item>
+          <el-form-item label="新密码">
+            <el-input v-model="form.new_password" type="password" show-password autocomplete="new-password" placeholder="至少 6 位" />
+          </el-form-item>
+          <el-form-item label="确认新密码">
+            <el-input v-model="form.confirm" type="password" show-password autocomplete="new-password" />
+          </el-form-item>
+          <el-button class="auth-submit" type="primary" size="large" native-type="submit" :loading="loading">保存新密码</el-button>
+        </el-form>
+        <p v-if="forced" class="auth-foot"><el-button link type="primary" @click="logout">退出登录</el-button></p>
+        <p v-else class="auth-foot"><router-link to="/items">返回</router-link></p>
+      </div>
     </div>
   </div>
 </template>

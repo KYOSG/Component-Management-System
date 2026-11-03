@@ -22,7 +22,7 @@ def build_backup(database_url: str, out_path: str | os.PathLike) -> None:
     """
     source = sqlite_path(database_url)
     if source is None or not source.is_file():
-        raise BackupError("当前数据库不是 SQLite 文件，请用数据库自带工具备份")
+        raise BackupError("找不到当前数据库文件，无法备份")
     handle, raw = tempfile.mkstemp(suffix=".db", prefix="cms-db-")
     os.close(handle)
     snapshot = Path(raw)
