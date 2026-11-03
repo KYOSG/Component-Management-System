@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import BrandMark from '../components/BrandMark.vue'
 
 const router = useRouter()
@@ -22,7 +22,9 @@ async function submit() {
   loading.value = true
   try {
     await http.post('/auth/register', form)
-    router.push('/items')
+    await router.push('/items')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }

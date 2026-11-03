@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import BrandMark from '../components/BrandMark.vue'
 
 const router = useRouter()
@@ -11,8 +11,12 @@ const forced = ref(false)
 const form = reactive({ old_password: '', new_password: '', confirm: '' })
 
 onMounted(async () => {
-  const { data } = await http.get('/auth/me')
-  forced.value = data.must_change_password
+  try {
+    const { data } = await http.get('/auth/me')
+    forced.value = data.must_change_password
+  } catch (error) {
+    reportRequestError(error)
+  }
 })
 
 async function submit() {
@@ -28,15 +32,21 @@ async function submit() {
   try {
     await http.post('/auth/password', { old_password: form.old_password, new_password: form.new_password })
     ElMessage.success('密码已修改，其他设备上的登录已失效')
-    router.push('/items')
+    await router.push('/items')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
 }
 
 async function logout() {
-  await http.post('/auth/logout')
-  router.push('/login')
+  try {
+    await http.post('/auth/logout')
+    await router.push('/login')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 </script>
 

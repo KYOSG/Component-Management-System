@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from sqlalchemy import and_, func, select, update
@@ -12,9 +13,22 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Item, ItemLocation, ProjectLine, User, utcnow
-from app.schemas import ItemCheckoutIn, ItemIn, ItemOut, ItemPage, LcscCreateIn, LocationOut, SearchHint
+from app.schemas import (
+    ItemCheckoutIn,
+    ItemIn,
+    ItemOut,
+    ItemPage,
+    LcscCreateIn,
+    LocationOut,
+    OrderCommitIn,
+    OrderCommitOut,
+    OrderLineOut,
+    OrderPreviewOut,
+    SearchHint,
+)
 from app.services.images import assign_image, delete_item_image, display_image_url
 from app.services.lcsc import LcscError, fetch_lcsc
+from app.services.order_import import OrderError, already_imported, apply_order, build_preview, parse_order
 from app.services.search import item_view, plan_query
 from app.services.spec_config import load_catalog
 from app.services.specs import SpecCatalog, SpecValidationError, dump_specs, load_specs
@@ -265,6 +279,72 @@ def export_items(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _upload_bytes(file: UploadFile) -> tuple[str, bytes]:
+    filename = Path(file.filename or "").name
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="请上传文件")
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件不能超过 10MB")
+    return filename, data
+
+
+def _preview_response(preview, imported: bool) -> OrderPreviewOut:
+    return OrderPreviewOut(
+        order_no=preview.order_no,
+        ordered_at=preview.ordered_at,
+        lines=[OrderLineOut.model_validate(line, from_attributes=True) for line in preview.lines],
+        create_count=preview.create_count,
+        stock_count=preview.stock_count,
+        skip_count=preview.skip_count,
+        ship_total=preview.ship_total,
+        already_imported=imported,
+    )
+
+
+@router.post("/order-preview", response_model=OrderPreviewOut)
+def preview_order(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OrderPreviewOut:
+    filename, data = _upload_bytes(file)
+    catalog = load_catalog(db, user.id)
+    try:
+        parsed = parse_order(filename, data, catalog)
+    except OrderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    codes = [line.lcsc_code for line in parsed.lines if line.lcsc_code]
+    quantities: dict[str, int] = {}
+    if codes:
+        rows = db.scalars(select(Item).where(Item.user_id == user.id, Item.lcsc_code.in_(codes))).all()
+        quantities = {item.lcsc_code: item.quantity or 0 for item in rows if item.lcsc_code}
+    preview = build_preview(parsed, quantities)
+    return _preview_response(preview, already_imported(db, user.id, parsed.order_no))
+
+
+@router.post("/order-commit", response_model=OrderCommitOut)
+def commit_order(
+    body: OrderCommitIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OrderCommitOut:
+    if not body.lines:
+        raise HTTPException(status_code=400, detail="没有可入库的发货明细")
+    catalog = load_catalog(db, user.id)
+    try:
+        result = apply_order(db, user.id, catalog, body.order_no, body.lines)
+    except OrderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    db.commit()
+    return OrderCommitOut(
+        created=result.created,
+        stocked=result.stocked,
+        skipped=result.skipped,
+        ship_total=result.ship_total,
     )
 
 

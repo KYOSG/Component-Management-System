@@ -1,7 +1,7 @@
 <script setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import * as echarts from 'echarts'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 
 const loading = ref(false)
 const range = ref(defaultRange())
@@ -115,6 +115,8 @@ async function load() {
     next[1] = render(charts.value[1], countEl.value, countRes.data.points, 'line-count', colors)
     next[2] = render(charts.value[2], consumptionEl.value, usedRes.data.points, 'bar', colors)
     charts.value = next
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }

@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import BrandMark from '../components/BrandMark.vue'
 
 const route = useRoute()
@@ -24,13 +24,15 @@ async function submit() {
   try {
     const { data } = await http.post('/auth/login', form)
     if (data.must_change_password) {
-      router.push('/password')
+      await router.push('/password')
       return
     }
     const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
       ? route.query.redirect
       : '/items'
-    router.push(redirect)
+    await router.push(redirect)
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }

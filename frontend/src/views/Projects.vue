@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { FORMAT_LABEL, formatDate } from '../format'
 
 const router = useRouter()
@@ -15,6 +15,8 @@ async function load() {
   try {
     const { data } = await http.get('/projects')
     rows.value = data
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -26,9 +28,13 @@ async function remove(row) {
   } catch {
     return
   }
-  await http.delete(`/projects/${row.id}`)
-  ElMessage.success('已删除')
-  await load()
+  try {
+    await http.delete(`/projects/${row.id}`)
+    ElMessage.success('已删除')
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function upload(option) {
@@ -41,9 +47,7 @@ async function upload(option) {
     sessionStorage.setItem('recommend-project', String(data.id))
     router.push(`/projects/${data.id}`)
   } catch (error) {
-    if (!error.response) {
-      ElMessage.error('导入超时或无法连接服务器')
-    }
+    if (!error.response) ElMessage.error('导入超时或无法连接服务器')
   } finally {
     uploading.value = false
   }

@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { FORMAT_LABEL, MATCH_STATUS, formatDate } from '../format'
 import CompareDialog from '../components/CompareDialog.vue'
 import ItemDrawer from '../components/ItemDrawer.vue'
@@ -36,6 +36,8 @@ async function load() {
     committedSets.value = data.purchase_sets
     project.value = data
     boxes.value = boxRes.data
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -48,9 +50,13 @@ async function removeProject() {
   } catch {
     return
   }
-  await http.delete(`/projects/${project.value.id}`)
-  ElMessage.success('已删除')
-  router.push('/projects')
+  try {
+    await http.delete(`/projects/${project.value.id}`)
+    ElMessage.success('已删除')
+    await router.push('/projects')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function needsRecommend(data) {
@@ -110,11 +116,15 @@ async function startRecommend() {
 
 async function rematch() {
   stopRecommend()
-  const { data } = await http.post(`/projects/${route.params.id}/match`)
-  committedSets.value = data.purchase_sets
-  project.value = data
-  if (needsRecommend(data)) startRecommend()
-  else ElMessage.success('已重新匹配')
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/match`)
+    committedSets.value = data.purchase_sets
+    project.value = data
+    if (needsRecommend(data)) startRecommend()
+    else ElMessage.success('已重新匹配')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function saveSets(value) {
@@ -127,7 +137,8 @@ async function saveSets(value) {
     project.value = data
     if (needsRecommend(data)) startRecommend()
     else ElMessage.success('已更新套数')
-  } catch {
+  } catch (error) {
+    reportRequestError(error)
     await load()
   } finally {
     savingSets.value = false
@@ -152,11 +163,15 @@ async function adopt(row) {
     ElMessage.info('已用 BOM 中的字段预填，请核对后填写自有库存和物料盒再保存')
     return
   }
-  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/adopt`)
-  if (data.warning) ElMessage.warning(data.warning)
-  else ElMessage.info(`商城库存 ${data.mall_stock ?? '—'}，参考价格 ${data.mall_price || '—'}，请填写自有库存和物料盒后再保存`)
-  draft.value = data
-  drawer.value = true
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/adopt`)
+    if (data.warning) ElMessage.warning(data.warning)
+    else ElMessage.info(`商城库存 ${data.mall_stock ?? '—'}，参考价格 ${data.mall_price || '—'}，请填写自有库存和物料盒后再保存`)
+    draft.value = data
+    drawer.value = true
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function replacementReason(row) {
@@ -186,9 +201,13 @@ async function addAll() {
     return
   }
   stopRecommend()
-  const { data } = await http.post(`/projects/${route.params.id}/add-all`)
-  ElMessage.success(`已加入 ${data.added} 个，增量 ${data.incremented} 个`)
-  await load()
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/add-all`)
+    ElMessage.success(`已加入 ${data.added} 个，增量 ${data.incremented} 个`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function checkoutLine(row) {
@@ -198,9 +217,13 @@ async function checkoutLine(row) {
   } catch {
     return
   }
-  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/checkout`)
-  applyLine(data)
-  ElMessage.success('已出库')
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/checkout`)
+    applyLine(data)
+    ElMessage.success('已出库')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function checkout() {
@@ -210,29 +233,45 @@ async function checkout() {
     return
   }
   stopRecommend()
-  const { data } = await http.post(`/projects/${route.params.id}/checkout`)
-  ElMessage.success(`已出库 ${data.deducted} 行，跳过 ${data.skipped} 行`)
-  await load()
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/checkout`)
+    ElMessage.success(`已出库 ${data.deducted} 行，跳过 ${data.skipped} 行`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function acceptSuggestion(row) {
-  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/accept`)
-  applyLine(data)
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/accept`)
+    applyLine(data)
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function stockDelta(row, delta) {
-  const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/stock-delta`, { delta })
-  applyLine(data)
+  try {
+    const { data } = await http.post(`/projects/${route.params.id}/lines/${row.id}/stock-delta`, { delta })
+    applyLine(data)
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function openCompare(row) {
   compareLine.value = row
   compareItem.value = null
-  if (row.matched_item_id) {
-    const { data } = await http.get(`/items/${row.matched_item_id}`)
-    compareItem.value = data
+  try {
+    if (row.matched_item_id) {
+      const { data } = await http.get(`/items/${row.matched_item_id}`)
+      compareItem.value = data
+    }
+    compareVisible.value = true
+  } catch (error) {
+    reportRequestError(error)
   }
-  compareVisible.value = true
 }
 
 function onPageHide() {

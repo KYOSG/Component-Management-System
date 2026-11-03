@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { downloadFile } from '../format'
 
 const loading = ref(false)
@@ -40,6 +40,8 @@ async function load() {
   try {
     const { data } = await http.get('/settings')
     apply(data)
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -69,6 +71,8 @@ async function save() {
     }
     ElMessage.success('已保存系统配置')
     apply(data)
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     saving.value = false
   }
@@ -100,6 +104,8 @@ async function backup() {
   backingUp.value = true
   try {
     await downloadFile(http, '/settings/backup', {}, 'component-backup.zip')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     backingUp.value = false
   }

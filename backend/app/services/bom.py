@@ -83,15 +83,15 @@ def _cell(value) -> str:
     return str(value).strip()
 
 
-def _read_xlsx(data: bytes) -> list[list[str]]:
-    workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
-    sheet = workbook.active
+def _xlsx_sheet(sheet) -> list[list[str]]:
     row_count = sheet.max_row or 0
     col_count = sheet.max_column or 0
     matrix = [
         [_cell(sheet.cell(row, col).value) for col in range(1, col_count + 1)]
         for row in range(1, row_count + 1)
     ]
+    if not matrix:
+        return []
     for merged in sheet.merged_cells.ranges:
         value = matrix[merged.min_row - 1][merged.min_col - 1]
         for row in range(merged.min_row, merged.max_row + 1):
@@ -100,9 +100,9 @@ def _read_xlsx(data: bytes) -> list[list[str]]:
     return matrix
 
 
-def _read_xls(data: bytes) -> list[list[str]]:
-    workbook = xlrd.open_workbook(file_contents=data)
-    sheet = workbook.sheet_by_index(0)
+def _xls_sheet(sheet) -> list[list[str]]:
+    if sheet.nrows == 0 or sheet.ncols == 0:
+        return []
     matrix = [
         [_cell(sheet.cell_value(row, col)) for col in range(sheet.ncols)]
         for row in range(sheet.nrows)
@@ -113,6 +113,32 @@ def _read_xls(data: bytes) -> list[list[str]]:
             for col in range(col_start, col_end):
                 matrix[row][col] = value
     return matrix
+
+
+def _read_xlsx(data: bytes) -> list[list[str]]:
+    workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    return _xlsx_sheet(workbook.active)
+
+
+def _read_xls(data: bytes) -> list[list[str]]:
+    workbook = xlrd.open_workbook(file_contents=data)
+    return _xls_sheet(workbook.sheet_by_index(0))
+
+
+def read_matrices(filename: str, data: bytes) -> list[list[list[str]]]:
+    suffix = Path(filename or "").suffix.lower()
+    try:
+        if suffix == ".xlsx":
+            workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+            return [_xlsx_sheet(sheet) for sheet in workbook.worksheets]
+        if suffix == ".xls":
+            workbook = xlrd.open_workbook(file_contents=data)
+            return [_xls_sheet(workbook.sheet_by_index(index)) for index in range(workbook.nsheets)]
+    except BomError:
+        raise
+    except Exception as exc:
+        raise BomError("文件无法读取") from exc
+    raise BomError("只支持 .xls 或 .xlsx")
 
 
 def _header_key(value: str) -> str:

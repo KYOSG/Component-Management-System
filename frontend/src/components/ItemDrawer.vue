@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { itemPayload, placeText } from '../format'
 import { categoryNames, loadCatalog, specFields, specValueOk } from '../specCatalog'
 
@@ -59,12 +59,17 @@ watch(
   async (open) => {
     if (!open) return
     hydrating.value = true
-    await loadCatalog()
-    Object.assign(form, empty(), props.item?.id ? props.item : props.draft || {})
-    form.specs = { ...(form.specs || {}) }
-    hint.value = ''
-    await nextTick()
-    hydrating.value = false
+    try {
+      await loadCatalog()
+      Object.assign(form, empty(), props.item?.id ? props.item : props.draft || {})
+      form.specs = { ...(form.specs || {}) }
+      hint.value = ''
+      await nextTick()
+    } catch (error) {
+      reportRequestError(error)
+    } finally {
+      hydrating.value = false
+    }
   },
 )
 
@@ -151,6 +156,8 @@ async function queryLcsc() {
     }, keep)
     hint.value = `已填入立创资料。商城库存 ${data.mall_stock ?? '—'}，参考价格 ${data.mall_price || '—'}，不会写入自有库存。`
     ElMessage.success('已填入立创资料')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     querying.value = false
   }
@@ -188,6 +195,8 @@ async function save() {
     ElMessage.success('已保存')
     emit('saved')
     close()
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     saving.value = false
   }

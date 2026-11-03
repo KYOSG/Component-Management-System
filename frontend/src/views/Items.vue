@@ -2,10 +2,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { downloadFile, money, placeText } from '../format'
 import { filledSpecs, loadCatalog } from '../specCatalog'
 import ItemDrawer from '../components/ItemDrawer.vue'
+import OrderImportDialog from '../components/OrderImportDialog.vue'
 
 const route = useRoute()
 const loading = ref(false)
@@ -17,6 +18,7 @@ const editing = ref(null)
 const hints = ref([])
 const lowCount = ref(0)
 const exporting = ref(false)
+const orderVisible = ref(false)
 const filters = reactive({
   page: 1,
   page_size: 20,
@@ -31,8 +33,12 @@ const filters = reactive({
 })
 
 async function loadBoxes() {
-  const { data } = await http.get('/boxes')
-  boxes.value = data
+  try {
+    const { data } = await http.get('/boxes')
+    boxes.value = data
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function load() {
@@ -44,6 +50,8 @@ async function load() {
     total.value = data.total
     hints.value = data.hints || []
     lowCount.value = data.low_stock_count || 0
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -80,11 +88,18 @@ function showLow() {
   search()
 }
 
+function imported() {
+  filters.page = 1
+  load()
+}
+
 async function exportExcel() {
   const { page, page_size, ...params } = filters
   exporting.value = true
   try {
     await downloadFile(http, '/items/export', params, 'items.xlsx')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     exporting.value = false
   }
@@ -105,18 +120,30 @@ function edit(row) {
 }
 
 async function unbox(row) {
-  await http.post(`/items/${row.id}/unbox`)
-  await load()
+  try {
+    await http.post(`/items/${row.id}/unbox`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(
-    `删除 ${row.mpn || row.lcsc_code || '这条物料'}？它的所有出入库流水会一起删除，统计页里的用量也会随之减少，删除后无法恢复。`,
-    '删除物料',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-  )
-  await http.delete(`/items/${row.id}`)
-  await load()
+  try {
+    await ElMessageBox.confirm(
+      `删除 ${row.mpn || row.lcsc_code || '这条物料'}？它的所有出入库流水会一起删除，统计页里的用量也会随之减少，删除后无法恢复。`,
+      '删除物料',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await http.delete(`/items/${row.id}`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 onMounted(async () => {
@@ -179,6 +206,7 @@ onMounted(async () => {
         <el-checkbox v-model="filters.low_stock" @change="search">只看低库存</el-checkbox>
         <span class="spacer" />
         <el-button icon="Download" :loading="exporting" @click="exportExcel">导出 Excel</el-button>
+        <el-button type="primary" plain icon="Upload" @click="orderVisible = true">订单入库</el-button>
         <el-button type="primary" icon="Plus" @click="create">新增物料</el-button>
       </div>
       <el-table v-loading="loading" class="items-table" :data="rows" table-layout="auto">
@@ -248,6 +276,7 @@ onMounted(async () => {
       </div>
     </div>
     <ItemDrawer v-model="drawer" :item="editing" :boxes="boxes" @saved="load" />
+    <OrderImportDialog v-model="orderVisible" @done="imported" />
   </div>
 </template>
 

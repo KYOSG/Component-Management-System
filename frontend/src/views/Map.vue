@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { cellText, money } from '../format'
 import { catalogState, filledSpecs, loadCatalog } from '../specCatalog'
 import ItemDrawer from '../components/ItemDrawer.vue'
@@ -94,7 +94,7 @@ const placeTargetText = computed(() => {
 })
 
 function gridStyle(box) {
-  return { gridTemplateColumns: `repeat(${box.cols}, minmax(128px, 1fr))` }
+  return { gridTemplateColumns: `repeat(${box.cols}, minmax(150px, 1fr))` }
 }
 
 function occupiedCount(box) {
@@ -111,14 +111,13 @@ function marks(item) {
   return highlights.value[item.id] || []
 }
 
-function longLcsc(item) {
-  const digits = String(item?.lcsc_code || '').replace(/\D/g, '')
-  return digits.length > 6
-}
-
 async function loadProjects() {
-  const { data } = await http.get('/projects')
-  projects.value = data
+  try {
+    const { data } = await http.get('/projects')
+    projects.value = data
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function cellSpecs(item) {
@@ -135,6 +134,8 @@ async function load() {
     if (projectId.value) params.project_id = projectId.value
     const { data } = await http.get('/map', { params })
     mapData.value = data
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -174,15 +175,25 @@ async function saveBox() {
     else await http.post('/boxes', payload)
     boxVisible.value = false
     await load()
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     boxSaving.value = false
   }
 }
 
 async function removeBox(box) {
-  await ElMessageBox.confirm('删除后，盒内物料会变为未入盒，物料本身仍保留。', '删除物料盒', { type: 'warning' })
-  await http.delete(`/boxes/${box.id}`)
-  await load()
+  try {
+    await ElMessageBox.confirm('删除后，盒内物料会变为未入盒，物料本身仍保留。', '删除物料盒', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await http.delete(`/boxes/${box.id}`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function openPlace(box) {
@@ -291,25 +302,33 @@ async function placeSelected() {
     payload.to_row = activeCell.value.row
     payload.to_col = activeCell.value.col
   }
-  await http.post('/transfer', payload)
-  placeVisible.value = false
-  await load()
+  try {
+    await http.post('/transfer', payload)
+    placeVisible.value = false
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function clearPlace() {
   const place = activePlace.value
   if (!place?.locationId) return
-  if (place.quantity > 0) {
-    await http.post('/transfer', {
-      from_location_id: place.locationId,
-      to_type: 'unboxed',
-      quantity: place.quantity,
-    })
-  } else {
-    await http.delete(`/locations/${place.locationId}`)
+  try {
+    if (place.quantity > 0) {
+      await http.post('/transfer', {
+        from_location_id: place.locationId,
+        to_type: 'unboxed',
+        quantity: place.quantity,
+      })
+    } else {
+      await http.delete(`/locations/${place.locationId}`)
+    }
+    detailVisible.value = false
+    await load()
+  } catch (error) {
+    reportRequestError(error)
   }
-  detailVisible.value = false
-  await load()
 }
 
 async function checkoutPlace() {
@@ -330,21 +349,33 @@ async function checkoutPlace() {
     ElMessage.warning('出库数量超过该位置的库存')
     return
   }
-  await http.post(`/items/${place.item.id}/checkout`, { location_id: place.locationId, quantity: amount })
-  ElMessage.success('已出库')
-  detailVisible.value = false
-  await load()
+  try {
+    await http.post(`/items/${place.item.id}/checkout`, { location_id: place.locationId, quantity: amount })
+    ElMessage.success('已出库')
+    detailVisible.value = false
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function removeItem(item) {
-  await ElMessageBox.confirm(
-    '它的所有出入库流水会一起删除，统计页里的用量也会随之减少，删除后无法恢复。',
-    '删除物料',
-    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
-  )
-  await http.delete(`/items/${item.id}`)
-  detailVisible.value = false
-  await load()
+  try {
+    await ElMessageBox.confirm(
+      '它的所有出入库流水会一起删除，统计页里的用量也会随之减少，删除后无法恢复。',
+      '删除物料',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await http.delete(`/items/${item.id}`)
+    detailVisible.value = false
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 watch(() => route.query.project, (value) => {
@@ -442,27 +473,20 @@ onMounted(async () => {
                 @keydown.space.prevent="openCell(box, cell)"
               >
                 <div class="cell-head">
-                  <span v-if="cell.item && !cell.dimmed" class="cell-type">{{ cell.item.category || '—' }}</span>
+                  <span v-if="cell.item && !cell.dimmed" class="cell-type" :title="cell.item.category">{{ cell.item.category || '—' }}</span>
                   <span class="cell-pos">{{ cell.row }}-{{ cell.col }}</span>
                 </div>
                 <div class="cell-main">
-                  <div class="cell-copy">
-                    <div v-if="cell.item && !cell.dimmed" class="cell-body">
-                      <span class="meta">{{ cell.item.footprint || '—' }}</span>
-                      <span class="meta">{{ cell.item.value || '—' }}</span>
-                      <span v-for="field in cellSpecs(cell.item)" :key="field.key" class="meta">{{ field.label }} {{ field.value }}</span>
-                      <span v-if="marks(cell.item).length" class="mark">{{ marks(cell.item).join(' ') }}</span>
-                    </div>
-                    <div v-else class="cell-body">
-                      <span class="meta">{{ cell.item ? '其他类目' : '空' }}</span>
-                    </div>
-                    <div v-if="cell.item" class="cell-foot" :class="{ stacked: longLcsc(cell.item) }">
-                      <span class="code">{{ cell.item.lcsc_code || '—' }}</span>
-                      <span class="stock">库存 {{ cell.location_quantity }}</span>
-                      <span v-if="cell.cell_value != null" class="worth">{{ money(cell.cell_value) }}</span>
-                    </div>
+                  <div v-if="cell.item && !cell.dimmed" class="cell-body">
+                    <span class="meta" :title="cell.item.footprint">{{ cell.item.footprint || '—' }}</span>
+                    <span class="meta" :title="cell.item.value">{{ cell.item.value || '—' }}</span>
+                    <span v-for="field in cellSpecs(cell.item)" :key="field.key" class="meta" :title="`${field.label} ${field.value}`">{{ field.label }} {{ field.value }}</span>
+                    <span v-if="marks(cell.item).length" class="mark">{{ marks(cell.item).join(' ') }}</span>
                   </div>
-                  <div v-if="cell.item?.image_url" class="cell-photo" @click.stop>
+                  <div v-else class="cell-body">
+                    <span class="meta">{{ cell.item ? '其他类目' : '空' }}</span>
+                  </div>
+                  <div v-if="cell.item?.image_url && !cell.dimmed" class="cell-photo" @click.stop>
                     <el-image
                       :src="cell.item.image_url"
                       fit="contain"
@@ -478,6 +502,11 @@ onMounted(async () => {
                       </template>
                     </el-image>
                   </div>
+                </div>
+                <div v-if="cell.item" class="cell-foot">
+                  <span class="code" :title="cell.item.lcsc_code">{{ cell.item.lcsc_code || '—' }}</span>
+                  <span class="stock">库存 {{ cell.location_quantity }}</span>
+                  <span v-if="cell.cell_value != null" class="worth">{{ money(cell.cell_value) }}</span>
                 </div>
               </div>
             </div>

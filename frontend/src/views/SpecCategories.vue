@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { loadCatalog } from '../specCatalog'
 
 const categories = ref([])
@@ -86,17 +86,21 @@ function toEditor(row) {
 }
 
 async function load(keepId = selectedId.value) {
-  const { data } = await http.get('/spec-categories')
-  categories.value = data
-  const found = data.find((item) => item.id === keepId) || data[0]
-  if (found) {
-    selectedId.value = found.id
-    toEditor(found)
-  } else {
-    selectedId.value = null
-    form.id = null
+  try {
+    const { data } = await http.get('/spec-categories')
+    categories.value = data
+    const found = data.find((item) => item.id === keepId) || data[0]
+    if (found) {
+      selectedId.value = found.id
+      toEditor(found)
+    } else {
+      selectedId.value = null
+      form.id = null
+    }
+    await loadCatalog(true)
+  } catch (error) {
+    reportRequestError(error)
   }
-  await loadCatalog(true)
 }
 
 async function select(row) {
@@ -126,9 +130,13 @@ async function createCategory() {
   } catch {
     return
   }
-  const { data } = await http.post('/spec-categories', { name: value.trim(), lcsc_keywords: [], fields: [] })
-  await load(data.id)
-  ElMessage.success('已新增类目')
+  try {
+    const { data } = await http.post('/spec-categories', { name: value.trim(), lcsc_keywords: [], fields: [] })
+    await load(data.id)
+    ElMessage.success('已新增类目')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 async function removeCategory() {
@@ -138,9 +146,13 @@ async function removeCategory() {
   } catch {
     return
   }
-  await http.delete(`/spec-categories/${form.id}`)
-  await load(null)
-  ElMessage.success('已删除类目')
+  try {
+    await http.delete(`/spec-categories/${form.id}`)
+    await load(null)
+    ElMessage.success('已删除类目')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function validate(body) {
@@ -186,6 +198,9 @@ async function save() {
     await load(form.id)
     ElMessage.success('已保存')
     return true
+  } catch (error) {
+    reportRequestError(error)
+    return false
   } finally {
     saving.value = false
   }
@@ -210,8 +225,12 @@ async function move(index, delta) {
   if (from < 0 || target < 0 || target >= ordered.length) return
   const [item] = ordered.splice(from, 1)
   ordered.splice(target, 0, item)
-  await Promise.all(ordered.map((row, order) => http.put(`/spec-categories/${row.id}`, storedPayload(row, order))))
-  await load(item.id)
+  try {
+    await Promise.all(ordered.map((row, order) => http.put(`/spec-categories/${row.id}`, storedPayload(row, order))))
+    await load(item.id)
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function addField() {

@@ -361,6 +361,7 @@ h3 {
 }
 
 .box-collapse-inner {
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -370,7 +371,9 @@ h3 {
   flex-direction: column;
   align-items: stretch;
   position: relative;
-  min-height: 76px;
+  min-width: 0;
+  height: 132px;
+  overflow: hidden;
   border: 1px dashed var(--el-border-color);
   border-radius: var(--cms-radius-sm);
   background: var(--cms-surface-muted);
@@ -395,7 +398,8 @@ h3 {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  flex: 0 0 auto;
   margin-bottom: 4px;
 }
 
@@ -405,6 +409,9 @@ h3 {
   font-weight: 650;
   line-height: 1.3;
   color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cell-pos {
@@ -418,32 +425,31 @@ h3 {
 
 .cell-main {
   display: flex;
-  align-items: stretch;
-  gap: 10px;
-  flex: 1;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1 1 auto;
   min-width: 0;
-}
-
-.cell-copy {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cell-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .cell-photo {
-  flex: 0 0 96px;
-  width: 96px;
-  align-self: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
 }
 
 .cell-photo .el-image {
-  width: 96px;
-  height: 96px;
+  display: block;
+  width: 44px;
+  height: 44px;
   border-radius: 6px;
   background: var(--cms-surface);
 }
@@ -460,16 +466,14 @@ h3 {
 
 .cell-foot {
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: flex-start;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.cell-foot.stacked {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
+  column-gap: 6px;
+  row-gap: 0;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--cms-border-soft);
 }
 
 .box-cell.occupied {
@@ -501,27 +505,34 @@ h3 {
 }
 
 .box-cell .code {
+  flex: 1 1 auto;
   min-width: 0;
-  word-break: break-all;
   font-family: var(--cms-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.cell-foot:not(.stacked) .code,
-.cell-foot:not(.stacked) .stock,
-.cell-foot:not(.stacked) .worth {
+.cell-foot .code,
+.cell-foot .stock,
+.cell-foot .worth {
   white-space: nowrap;
 }
 
-.box-cell .stock {
+.box-cell .stock,
+.box-cell .worth {
   flex: 0 0 auto;
 }
 
 .box-cell .meta,
 .box-cell .mark {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   font-size: 12px;
+  line-height: 1.4;
   color: var(--cms-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cell-body .meta:first-child {

@@ -553,3 +553,83 @@ class SpecCategoryOut(BaseModel):
     sort_order: int
     created_at: datetime
     updated_at: datetime
+
+
+class OrderLineIn(BaseModel):
+    lcsc_code: str = Field(default="", max_length=64)
+    mpn: str = Field(default="", max_length=255)
+    name: str = Field(default="", max_length=255)
+    brand: str = Field(default="", max_length=255)
+    footprint: str = Field(default="", max_length=255)
+    ship_qty: int = 0
+    unit_price: float | None = None
+    skip: bool = False
+
+    @field_validator("lcsc_code", "mpn", "name", "brand", "footprint")
+    @classmethod
+    def strip_order_text(cls, value: str) -> str:
+        return (value or "").strip()
+
+    @field_validator("ship_qty")
+    @classmethod
+    def ship_qty_range(cls, value: int) -> int:
+        if value < 0 or value > 10_000_000:
+            raise ValueError("发货数量不正确")
+        return value
+
+    @field_validator("unit_price")
+    @classmethod
+    def unit_price_range(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if value < 0 or value > 1_000_000:
+            raise ValueError("单价不正确")
+        return round(float(value), 6)
+
+
+class OrderCommitIn(BaseModel):
+    order_no: str = ""
+    lines: list[OrderLineIn] = Field(default_factory=list, max_length=2000)
+
+    @field_validator("order_no")
+    @classmethod
+    def order_no_text(cls, value: str) -> str:
+        return (value or "").strip()[:128]
+
+
+class OrderLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    line_no: int
+    lcsc_code: str
+    mpn: str
+    name: str
+    brand: str
+    footprint: str
+    category: str
+    value: str
+    ordered_qty: int
+    ship_qty: int
+    unit_price: float | None = None
+    skip: bool
+    skip_reason: str = ""
+    action: str
+    current_quantity: int = 0
+
+
+class OrderPreviewOut(BaseModel):
+    order_no: str
+    ordered_at: str
+    lines: list[OrderLineOut]
+    create_count: int
+    stock_count: int
+    skip_count: int
+    ship_total: int
+    already_imported: bool = False
+
+
+class OrderCommitOut(BaseModel):
+    created: int
+    stocked: int
+    skipped: int
+    ship_total: int

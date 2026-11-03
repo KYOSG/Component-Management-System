@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import BrandMark from '../components/BrandMark.vue'
 
 const route = useRoute()
@@ -21,14 +21,22 @@ const title = computed(() => route.meta.title || '电子元件库')
 const initial = computed(() => (email.value || '?').slice(0, 1).toUpperCase())
 
 onMounted(async () => {
-  const { data } = await http.get('/auth/me')
-  email.value = data.email
-  isAdmin.value = data.is_admin
+  try {
+    const { data } = await http.get('/auth/me')
+    email.value = data.email
+    isAdmin.value = data.is_admin
+  } catch (error) {
+    reportRequestError(error)
+  }
 })
 
 async function logout() {
-  await http.post('/auth/logout')
-  router.push('/login')
+  try {
+    await http.post('/auth/logout')
+    await router.push('/login')
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 function onUserCommand(command) {

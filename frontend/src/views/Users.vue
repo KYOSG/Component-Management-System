@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { formatDate } from '../format'
 
 const loading = ref(false)
@@ -18,6 +18,8 @@ async function load() {
     const [me, users] = await Promise.all([http.get('/auth/me'), http.get('/users')])
     currentId.value = me.data.id
     rows.value = users.data
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     loading.value = false
   }
@@ -54,19 +56,29 @@ async function save() {
     }
     visible.value = false
     await load()
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     saving.value = false
   }
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm(
-    `删除账号 ${row.email}？该账号下的物料、物料盒和项目会一起删除。`,
-    '删除账号',
-    { type: 'warning' },
-  )
-  await http.delete(`/users/${row.id}`)
-  await load()
+  try {
+    await ElMessageBox.confirm(
+      `删除账号 ${row.email}？该账号下的物料、物料盒和项目会一起删除。`,
+      '删除账号',
+      { type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await http.delete(`/users/${row.id}`)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  }
 }
 
 onMounted(load)

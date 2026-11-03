@@ -1,7 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { placeText } from '../format'
 
 const props = defineProps({
@@ -35,15 +35,19 @@ watch(
   () => props.modelValue,
   async (open) => {
     if (!open || !props.source?.itemId) return
-    const { data } = await http.get(`/items/${props.source.itemId}/locations`)
-    locations.value = data.filter((row) => row.quantity > 0)
-    form.from_location_id = props.source.locationId || locations.value[0]?.id || null
-    form.quantity = sourceLocation.value?.quantity || 1
-    form.to_type = 'unboxed'
-    form.to_box_id = null
-    form.to_row = 1
-    form.to_col = 1
-    form.to_slot_index = 1
+    try {
+      const { data } = await http.get(`/items/${props.source.itemId}/locations`)
+      locations.value = data.filter((row) => row.quantity > 0)
+      form.from_location_id = props.source.locationId || locations.value[0]?.id || null
+      form.quantity = sourceLocation.value?.quantity || 1
+      form.to_type = 'unboxed'
+      form.to_box_id = null
+      form.to_row = 1
+      form.to_col = 1
+      form.to_slot_index = 1
+    } catch (error) {
+      reportRequestError(error)
+    }
   },
 )
 
@@ -74,6 +78,8 @@ async function submit() {
     ElMessage.success('已流转')
     emit('saved')
     close()
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     saving.value = false
   }

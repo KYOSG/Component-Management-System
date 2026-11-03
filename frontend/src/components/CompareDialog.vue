@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import http from '../api'
+import http, { reportRequestError } from '../api'
 import { MATCH_STATUS, placeText } from '../format'
 
 const props = defineProps({
@@ -227,6 +227,8 @@ async function searchLibrary() {
   try {
     const { data } = await http.get('/items', { params: { q: text, page: 1, page_size: 8 } })
     results.value = data.items || []
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     searching.value = false
   }
@@ -237,12 +239,16 @@ function choose(row) {
 }
 
 async function createFromCode() {
-  if (!typedCode.value) return
+  if (!typedCode.value) return false
   saving.value = true
   try {
     const { data } = await http.post('/items/from-lcsc', { lcsc_code: typedCode.value })
     picked.value = data
     ElMessage.success('已按立创编号放入物料库，确认后会写入这条 BOM')
+    return true
+  } catch (error) {
+    reportRequestError(error)
+    return false
   } finally {
     saving.value = false
   }
@@ -250,7 +256,10 @@ async function createFromCode() {
 
 async function confirmReplace() {
   if (!props.line?.id || !props.projectId) return
-  if (!picked.value && typedCode.value) await createFromCode()
+  if (!picked.value && typedCode.value) {
+    const created = await createFromCode()
+    if (!created) return
+  }
   if (!picked.value) {
     ElMessage.warning('请先从库中选择物料，或输入立创编号')
     return
@@ -263,6 +272,8 @@ async function confirmReplace() {
     emit('replaced', data)
     emit('update:modelValue', false)
     ElMessage.success('已用库中物料替换这条 BOM')
+  } catch (error) {
+    reportRequestError(error)
   } finally {
     saving.value = false
   }

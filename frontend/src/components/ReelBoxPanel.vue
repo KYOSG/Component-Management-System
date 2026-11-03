@@ -17,11 +17,6 @@ function specs(slot) {
   return filledSpecs(slot.item)
 }
 
-function longLcsc(item) {
-  const digits = String(item?.lcsc_code || '').replace(/\D/g, '')
-  return digits.length > 6
-}
-
 /* Sprocket hole positions at r=32, center=(40,40) */
 const HOLES = [
   [40, 8],
@@ -93,6 +88,20 @@ const HOLES = [
           </svg>
           <!-- Slot number badge below disc -->
           <div class="reel-slot-no">卷{{ slot.slot_index }}</div>
+          <div v-if="slot.item?.image_url && !slot.dimmed" class="reel-photo" @click.stop>
+            <el-image
+              :src="slot.item.image_url"
+              fit="contain"
+              lazy
+              :preview-src-list="[slot.item.image_url]"
+              preview-teleported
+              hide-on-click-modal
+            >
+              <template #error>
+                <div class="reel-photo-err"><el-icon><Picture /></el-icon></div>
+              </template>
+            </el-image>
+          </div>
         </div>
 
         <!-- Info panel -->
@@ -100,38 +109,23 @@ const HOLES = [
 
           <!-- Occupied reel -->
           <template v-if="slot.item && !slot.dimmed">
-            <div class="reel-row reel-row--head">
-              <span class="reel-cat">{{ slot.item.category || '—' }}</span>
-            </div>
-            <div class="reel-val">{{ slot.item.value || slot.item.mpn || '—' }}</div>
-            <div class="reel-fp">{{ slot.item.footprint || '—' }}</div>
+            <div class="reel-cat" :title="slot.item.category">{{ slot.item.category || '—' }}</div>
+            <div class="reel-val" :title="slot.item.value || slot.item.mpn">{{ slot.item.value || slot.item.mpn || '—' }}</div>
+            <div class="reel-fp" :title="slot.item.footprint">{{ slot.item.footprint || '—' }}</div>
             <span
               v-for="field in specs(slot)" :key="field.key"
               class="reel-spec"
+              :title="`${field.label} ${field.value}`"
             >{{ field.label }} {{ field.value }}</span>
             <span v-if="marks(slot).length" class="reel-mark">
               {{ marks(slot).join(' ') }}
             </span>
-            <div class="reel-foot" :class="{ stacked: longLcsc(slot.item) }">
-              <span class="reel-code">{{ slot.item.lcsc_code || '—' }}</span>
+            <div class="reel-foot">
+              <span class="reel-code" :title="slot.item.lcsc_code">{{ slot.item.lcsc_code || '—' }}</span>
               <span class="reel-stock">库存 {{ slot.quantity }}</span>
               <span v-if="slot.cell_value != null" class="reel-worth">
                 {{ money(slot.cell_value) }}
               </span>
-            </div>
-            <div v-if="slot.item.image_url" class="reel-photo" @click.stop>
-              <el-image
-                :src="slot.item.image_url"
-                fit="contain"
-                lazy
-                :preview-src-list="[slot.item.image_url]"
-                preview-teleported
-                hide-on-click-modal
-              >
-                <template #error>
-                  <div class="reel-photo-err"><el-icon><Picture /></el-icon></div>
-                </template>
-              </el-image>
             </div>
           </template>
 
@@ -169,7 +163,8 @@ const HOLES = [
 /* ── Grid container ── */
 .reels {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-auto-rows: 1fr;
   gap: 10px;
   margin-top: 12px;
 }
@@ -223,7 +218,9 @@ const HOLES = [
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  flex: 1 1 auto;
   width: 100%;
+  min-width: 0;
   padding: 12px 12px 10px;
   border: 0;
   background: transparent;
@@ -311,16 +308,18 @@ const HOLES = [
   min-width: 0;
 }
 
-/* Category + slot-number row */
-.reel-row--head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  margin-bottom: 3px;
+.reel-cat,
+.reel-val,
+.reel-fp,
+.reel-spec,
+.reel-mark {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reel-cat {
+  margin-bottom: 3px;
   font-size: 11px;
   font-weight: 700;
   color: var(--cms-primary);
@@ -367,15 +366,10 @@ const HOLES = [
 .reel-foot {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  column-gap: 6px;
   margin-top: 6px;
   flex-wrap: wrap;
-}
-
-.reel-foot.stacked {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  white-space: nowrap;
 }
 
 .reel-code {
@@ -383,7 +377,9 @@ const HOLES = [
   font-size: 11px;
   font-weight: 650;
   color: var(--cms-muted);
-  word-break: break-all;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   flex: 1 1 auto;
 }
 
@@ -405,13 +401,14 @@ const HOLES = [
 .reel-photo {
   width: 56px;
   height: 56px;
-  margin-top: 6px;
+  margin-top: 4px;
   border-radius: var(--cms-radius-sm);
   overflow: hidden;
   background: var(--cms-surface-muted);
 }
 
 .reel-photo .el-image {
+  display: block;
   width: 56px;
   height: 56px;
 }

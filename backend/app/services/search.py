@@ -98,6 +98,28 @@ def scan_quantities(text: str) -> dict[str, list[float]]:
     return output
 
 
+def earliest_quantity(text: str, units: frozenset[str] | None = None) -> tuple[str, float, int] | None:
+    """归一化文本里最靠前的数量，返回 (单位, 数值, 起点)。"""
+    blob = normalize_text(text)
+    best: tuple[int, int, str, float] | None = None
+    for unit, pattern, convert in _SCAN:
+        if units is not None and unit not in units:
+            continue
+        found = pattern.search(blob)
+        if found is None:
+            continue
+        number = convert(found)
+        if number is None:
+            continue
+        # 起点相同的时候保留更长的匹配，避免 10kΩ 被收成 10k。
+        span = found.end() - found.start()
+        if best is None or found.start() < best[0] or (found.start() == best[0] and span > best[1]):
+            best = (found.start(), span, unit, float(number))
+    if best is None:
+        return None
+    return best[2], best[3], best[0]
+
+
 def format_quantity(unit: str, number: float) -> str:
     scales = UNIT_SCALES[unit]
     factor, suffix = scales[-1]
