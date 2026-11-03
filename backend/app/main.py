@@ -32,7 +32,7 @@ class SPAStaticFiles(StaticFiles):
         return response
 
 
-app = FastAPI(title="物品映射", lifespan=lifespan)
+app = FastAPI(title="电子元件库", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",

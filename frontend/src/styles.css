@@ -66,6 +66,18 @@ a {
   font-size: 13px;
 }
 
+.stat-link {
+  text-decoration: none;
+}
+
+.stat-link:hover {
+  border-color: #303f9f;
+}
+
+.stat b.stat-warn {
+  color: #d03050;
+}
+
 .muted {
   color: #667085;
 }

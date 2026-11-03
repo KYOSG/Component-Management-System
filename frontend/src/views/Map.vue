@@ -11,7 +11,7 @@ import TransferDialog from '../components/TransferDialog.vue'
 
 const route = useRoute()
 const loading = ref(false)
-const mapData = ref({ stats: { item_count: 0, box_count: 0, quantity_total: 0, total_value: 0 }, categories: [], boxes: [], unboxed: [], highlights: {} })
+const mapData = ref({ stats: { item_count: 0, box_count: 0, quantity_total: 0, total_value: 0, low_stock_count: 0 }, categories: [], boxes: [], unboxed: [], highlights: {} })
 const projects = ref([])
 const category = ref('')
 const projectId = ref(route.query.project ? Number(route.query.project) : null)
@@ -337,7 +337,11 @@ async function checkoutPlace() {
 }
 
 async function removeItem(item) {
-  await ElMessageBox.confirm('删除后无法恢复。', '删除物料', { type: 'warning' })
+  await ElMessageBox.confirm(
+    '它的所有出入库流水会一起删除，统计页里的用量也会随之减少，删除后无法恢复。',
+    '删除物料',
+    { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+  )
   await http.delete(`/items/${item.id}`)
   detailVisible.value = false
   await load()
@@ -361,6 +365,9 @@ onMounted(async () => {
       <div class="stat"><span>盒子数量</span><b>{{ mapData.stats.box_count }}</b></div>
       <div class="stat"><span>库存总数</span><b>{{ mapData.stats.quantity_total }}</b></div>
       <div class="stat"><span>库存总价值</span><b>{{ money(mapData.stats.total_value) }}</b></div>
+      <router-link class="stat stat-link" :to="{ path: '/items', query: { low_stock: '1' } }">
+        <span>低库存物料</span><b :class="{ 'stat-warn': mapData.stats.low_stock_count }">{{ mapData.stats.low_stock_count }}</b>
+      </router-link>
     </div>
     <div class="page-card" style="margin-bottom: 16px">
       <div class="toolbar">

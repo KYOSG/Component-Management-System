@@ -6,7 +6,7 @@ from collections.abc import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import SessionLocal
+import app.database as database
 from app.models import Item, Project, ProjectLine, utcnow
 from app.services.stock import place_snapshots
 from app.services.deepseek import AiRun
@@ -90,7 +90,7 @@ def apply_match(db: Session, user_id: int, project: Project) -> None:
 
 
 def recommend_pending(project_id: int, user_id: int, run: AiRun, on_line: Callable[[ProjectLine], None]) -> None:
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         project = db.scalar(select(Project).where(Project.id == project_id, Project.user_id == user_id))
         if project is None:

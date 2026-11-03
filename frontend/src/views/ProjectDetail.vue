@@ -171,7 +171,20 @@ function canAccept(row) {
   return row.match_status === 'suggested' && !!row.matched_item_id
 }
 
+function canCheckout(row) {
+  return !!row.matched_item_id && ['matched', 'insufficient'].includes(row.match_status)
+}
+
 async function addAll() {
+  try {
+    await ElMessageBox.confirm(
+      '会按每一行的需求数量入库：物料库里已有的物料增加库存，没有的新建物料。可以重复执行，每执行一次就再入库一次。',
+      '全部加入物料库',
+      { type: 'warning', confirmButtonText: '确认入库', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
   stopRecommend()
   const { data } = await http.post(`/projects/${route.params.id}/add-all`)
   ElMessage.success(`已加入 ${data.added} 个，增量 ${data.incremented} 个`)
@@ -192,7 +205,7 @@ async function checkoutLine(row) {
 
 async function checkout() {
   try {
-    await ElMessageBox.confirm('将按需求数量扣减已匹配物料的库存，库存可以为负数。未入库的行会跳过。', '一键出库', { type: 'warning' })
+    await ElMessageBox.confirm('将按需求数量扣减已匹配物料的库存，库存可以为负数，会计入消耗统计。未入库的行和还没点“使用替换器件”确认的替换建议会跳过。可以重复执行，每执行一次就再扣一次。', '一键出库', { type: 'warning' })
   } catch {
     return
   }
@@ -334,9 +347,9 @@ onBeforeUnmount(() => {
               <el-button v-if="canAdopt(row)" size="small" type="primary" @click="adopt(row)">
                 {{ row.lcsc_code ? '按编号加入' : '加入物料库' }}
               </el-button>
-              <el-button v-if="row.matched_item_id" size="small" type="warning" @click="checkoutLine(row)">出库</el-button>
-              <el-button v-if="row.matched_item_id" size="small" type="success" @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
-              <el-button v-if="row.matched_item_id" size="small" type="danger" @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="warning" @click="checkoutLine(row)">出库</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="success" @click="stockDelta(row, row.quantity_required)">补充库存</el-button>
+              <el-button v-if="canCheckout(row)" size="small" type="danger" @click="stockDelta(row, -row.quantity_required)">减扣库存</el-button>
             </div>
           </template>
         </el-table-column>

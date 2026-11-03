@@ -11,10 +11,10 @@ router = APIRouter(prefix="/api/media", tags=["media"])
 
 
 @router.get("/{filename}")
-def read_image(filename: str, _: User = Depends(get_current_user)) -> FileResponse:
+def read_image(filename: str, user: User = Depends(get_current_user)) -> FileResponse:
     if FILENAME_RE.fullmatch(filename) is None:
         raise HTTPException(status_code=404, detail="图片不存在")
-    path = image_dir() / filename
+    path = image_dir(user.id) / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="图片不存在")
     return FileResponse(path)

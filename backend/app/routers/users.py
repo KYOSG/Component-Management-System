@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import require_admin
-from app.models import Box, Item, ItemLocation, Project, ProjectLine, SpecCategory, StockEvent, User
-from app.routers.auth import _check_password
+from app.models import Box, Item, ItemLocation, Project, ProjectLine, SpecCategory, StockEvent, User, new_session_token
+from app.routers.auth import _check_password, rotate_session, set_session
 from app.schemas import UserOut, UserWrite
 from app.security import hash_password
+from app.services.images import remove_user_images
 from app.services.spec_config import seed_defaults
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -43,6 +44,7 @@ def delete_user_data(db: Session, user: User) -> None:
     db.execute(delete(Box).where(Box.user_id == user.id))
     db.execute(delete(SpecCategory).where(SpecCategory.user_id == user.id))
     db.delete(user)
+    remove_user_images(user.id)
 
 
 @router.get("", response_model=list[UserOut])
@@ -58,7 +60,12 @@ def create_user(body: UserWrite, db: Session = Depends(get_db), _admin: User = D
     _check_password(body.password)
     if db.scalar(select(User.id).where(User.email == account)):
         raise HTTPException(status_code=400, detail="账号已存在")
-    user = User(email=account, password_hash=hash_password(body.password), is_admin=body.is_admin)
+    user = User(
+        email=account,
+        password_hash=hash_password(body.password),
+        is_admin=body.is_admin,
+        session_token=new_session_token(),
+    )
     db.add(user)
     db.flush()
     seed_defaults(db, user.id)
@@ -71,8 +78,9 @@ def create_user(body: UserWrite, db: Session = Depends(get_db), _admin: User = D
 def update_user(
     user_id: int,
     body: UserWrite,
+    response: Response,
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ) -> User:
     user = db.get(User, user_id)
     if user is None:
@@ -86,10 +94,13 @@ def update_user(
     if body.password:
         _check_password(body.password)
         user.password_hash = hash_password(body.password)
+        rotate_session(user)
     user.email = account
     user.is_admin = body.is_admin
     db.commit()
     db.refresh(user)
+    if body.password and user.id == admin.id:
+        set_session(response, user)
     return user
 
 

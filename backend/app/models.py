@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -8,6 +9,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def new_session_token() -> str:
+    return secrets.token_urlsafe(24)
 
 
 class Base(DeclarativeBase):
@@ -29,6 +34,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    session_token: Mapped[str] = mapped_column(String(64), default=new_session_token)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -79,6 +86,7 @@ class Item(Base):
     params: Mapped[str] = mapped_column(Text, default="")
     specs: Mapped[str] = mapped_column(Text, default="{}")
     quantity: Mapped[int] = mapped_column(Integer, default=0)
+    min_stock: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     datasheet_url: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str] = mapped_column(Text, default="")

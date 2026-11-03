@@ -91,8 +91,8 @@ def search_to_detail(item: dict, detail: dict | None) -> dict:
     }
 
 
-def fetch_lcsc(code: str, catalog: SpecCatalog) -> dict:
-    product_code = (code or "").strip()
+def fetch_lcsc(code: str, catalog: SpecCatalog, *, user_id: int | None = None) -> dict:
+    product_code = (code or "").strip().upper()
     if not product_code:
         raise LcscError("查询失败，请手填")
     try:
@@ -108,12 +108,15 @@ def fetch_lcsc(code: str, catalog: SpecCatalog) -> dict:
     else:
         raise LcscError("查询失败，请手填")
     mapped = map_product(result, catalog)
-    mapped["lcsc_code"] = mapped["lcsc_code"] or product_code
+    mapped["lcsc_code"] = (mapped["lcsc_code"] or product_code).strip().upper()
     from app.services.images import localize, safe_stem
 
     code = safe_stem(mapped["lcsc_code"])
     remote = mapped.get("image_url") or ""
-    mapped["image_url"] = localize(remote, f"lcsc-{code}") if remote and code else ""
+    if remote and code and user_id is not None:
+        mapped["image_url"] = localize(remote, f"lcsc-{code}", user_id)
+    else:
+        mapped["image_url"] = ""
     return mapped
 
 

@@ -16,7 +16,7 @@ const active = computed(() => {
   return route.path
 })
 
-const title = computed(() => route.meta.title || '物品映射')
+const title = computed(() => route.meta.title || '电子元件库')
 
 onMounted(async () => {
   const { data } = await http.get('/auth/me')
@@ -33,7 +33,7 @@ async function logout() {
 <template>
   <el-container class="shell">
     <el-aside class="aside" width="220px">
-      <div class="brand">物品映射</div>
+      <div class="brand">电子元件库</div>
       <el-menu :key="isAdmin ? 'admin' : 'user'" :default-active="active" :default-openeds="['settings']" router>
         <el-menu-item index="/items">
           <el-icon><Goods /></el-icon>
@@ -55,12 +55,12 @@ async function logout() {
           <el-icon><User /></el-icon>
           <span>账户管理</span>
         </el-menu-item>
-        <el-sub-menu v-if="isAdmin" index="settings">
+        <el-sub-menu index="settings">
           <template #title>
             <el-icon><Setting /></el-icon>
             <span>系统配置</span>
           </template>
-          <el-menu-item index="/settings">基本设置</el-menu-item>
+          <el-menu-item v-if="isAdmin" index="/settings">基本设置</el-menu-item>
           <el-menu-item index="/settings/categories">参数配置</el-menu-item>
         </el-sub-menu>
       </el-menu>
@@ -70,6 +70,7 @@ async function logout() {
         <h2>{{ title }}</h2>
         <div>
           <span class="muted">{{ email }}</span>
+          <el-button link type="primary" @click="router.push('/password')">修改密码</el-button>
           <el-button link type="primary" @click="logout">退出</el-button>
         </div>
       </el-header>

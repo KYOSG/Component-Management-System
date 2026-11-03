@@ -225,7 +225,7 @@ def _parse_quote(matrix: list[list[str]], header_index: int, filename: str) -> P
             designators=_pick(row, columns, "Designator"),
             quantity_per_board=per_board,
             quantity_required=required,
-            lcsc_code=_pick(row, columns, "商品编号"),
+            lcsc_code=_pick(row, columns, "商品编号").upper(),
             mpn=_pick(row, columns, "型号") or _pick(row, columns, "Manufacturer Part"),
             brand=_pick(row, columns, "品牌") or _pick(row, columns, "Manufacturer"),
             footprint=footprint,
@@ -258,7 +258,7 @@ def _parse_eda(matrix: list[list[str]], header_index: int, filename: str) -> Par
         value = _pick(row, columns, "Value")
         footprint = _pick(row, columns, "Footprint")
         brand = _pick(row, columns, "Manufacturer")
-        lcsc_code = _pick(row, columns, "Supplier Part")
+        lcsc_code = _pick(row, columns, "Supplier Part").upper()
         if not any((mpn, value, footprint, brand, lcsc_code)):
             continue
         extras: list[str] = []

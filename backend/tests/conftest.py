@@ -19,7 +19,30 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
+def prepare_test_database() -> None:
+    """测试默认打开注册，并跳过初始管理员的强制改密。"""
+    from sqlalchemy import update
+
+    import app.database as database
+    from app.models import SystemConfig, User, utcnow
+    from app.ratelimit import login_limiter
+
+    login_limiter.reset()
+    db = database.SessionLocal()
+    try:
+        row = db.get(SystemConfig, "allow_register")
+        if row is None:
+            db.add(SystemConfig(key="allow_register", value="1", updated_at=utcnow()))
+        else:
+            row.value = "1"
+        db.execute(update(User).where(User.email == "admin").values(must_change_password=False))
+        db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as test_client:
+        prepare_test_database()
         yield test_client

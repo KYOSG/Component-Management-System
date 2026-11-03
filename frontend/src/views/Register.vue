@@ -1,11 +1,21 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import http from '../api'
 
 const router = useRouter()
 const loading = ref(false)
 const form = reactive({ email: '', password: '' })
+const allowRegister = ref(true)
+
+onMounted(async () => {
+  try {
+    const { data } = await http.get('/auth/options')
+    allowRegister.value = data.allow_register
+  } catch {
+    allowRegister.value = false
+  }
+})
 
 async function submit() {
   loading.value = true
@@ -23,7 +33,8 @@ async function submit() {
     <div class="auth-card page-card">
       <h1>注册</h1>
       <p class="muted">使用邮箱和密码创建账号，数据按账号隔离。</p>
-      <el-form @submit.prevent="submit">
+      <el-alert v-if="!allowRegister" type="info" :closable="false" title="管理员未开放注册，请联系管理员创建账号。" />
+      <el-form v-else @submit.prevent="submit">
         <el-form-item label="邮箱">
           <el-input v-model="form.email" autocomplete="username" />
         </el-form-item>

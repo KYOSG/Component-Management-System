@@ -18,22 +18,24 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def sign_session(user_id: int, secret: str, ttl_seconds: int) -> str:
+def _sign(body: str, secret: str) -> str:
+    return hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def sign_session(user_id: int, session_token: str, secret: str, ttl_seconds: int) -> str:
     expires = int(time.time()) + ttl_seconds
-    body = f"{user_id}.{expires}"
-    signature = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{body}.{signature}"
+    body = f"{user_id}.{session_token}.{expires}"
+    return f"{body}.{_sign(body, secret)}"
 
 
-def read_session(token: str, secret: str) -> int | None:
+def read_session(token: str, secret: str) -> tuple[int, str] | None:
     try:
-        user_text, expires_text, signature = token.split(".", 2)
-        body = f"{user_text}.{expires_text}"
-        expected = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, signature):
+        user_text, session_token, expires_text, signature = token.split(".")
+        body = f"{user_text}.{session_token}.{expires_text}"
+        if not hmac.compare_digest(_sign(body, secret), signature):
             return None
         if int(expires_text) < int(time.time()):
             return None
-        return int(user_text)
+        return int(user_text), session_token
     except (TypeError, ValueError):
         return None

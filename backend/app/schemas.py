@@ -41,7 +41,17 @@ class UserOut(ORMModel):
     id: int
     email: str
     is_admin: bool
+    must_change_password: bool = False
     created_at: datetime
+
+
+class PasswordChangeIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class AuthOptionsOut(BaseModel):
+    allow_register: bool
 
 
 class UserWrite(BaseModel):
@@ -89,10 +99,18 @@ class ItemIn(BaseModel):
     params: str = ""
     specs: dict[str, str] = Field(default_factory=dict)
     quantity: int = 0
+    min_stock: int = 0
     unit_price: float | None = None
     datasheet_url: str = ""
     image_url: str = ""
     remark: str = ""
+
+    @field_validator("min_stock")
+    @classmethod
+    def min_stock_non_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("低库存阈值不能小于 0")
+        return value
 
     @field_validator("quantity")
     @classmethod
@@ -199,6 +217,8 @@ class ItemOut(BaseModel):
     params: str
     specs: dict[str, str] = Field(default_factory=dict)
     quantity: int
+    min_stock: int = 0
+    low_stock: bool = False
     unit_price: float | None = None
     total_value: float | None = None
     locations: list[LocationOut] = Field(default_factory=list)
@@ -209,11 +229,18 @@ class ItemOut(BaseModel):
     updated_at: datetime
 
 
+class SearchHint(BaseModel):
+    kind: str
+    label: str
+
+
 class ItemPage(BaseModel):
     total: int
     page: int
     page_size: int
     items: list[ItemOut]
+    hints: list[SearchHint] = Field(default_factory=list)
+    low_stock_count: int = 0
 
 
 class CellOut(BaseModel):
@@ -261,6 +288,7 @@ class MapStats(BaseModel):
     box_count: int
     quantity_total: int
     total_value: float = 0
+    low_stock_count: int = 0
 
 
 class MapOut(BaseModel):
@@ -338,14 +366,18 @@ class SystemSettingsIn(BaseModel):
     deepseek_api_key: str = ""
     deepseek_base_url: str = ""
     deepseek_model: str = ""
+    allow_register: bool | None = None
 
 
 class SystemSettingsOut(BaseModel):
     database_location: str
     database_name: str
     deepseek_api_key: str
+    deepseek_api_key_set: bool = False
     deepseek_base_url: str
     deepseek_model: str
+    allow_register: bool = False
+    database_switched: bool = False
 
 
 class AiTestIn(BaseModel):

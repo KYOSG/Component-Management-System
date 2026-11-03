@@ -15,6 +15,6 @@ router = APIRouter(prefix="/api/lcsc", tags=["lcsc"])
 @router.get("/{code}")
 def query_product(code: str, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     try:
-        return fetch_lcsc(code, load_catalog(db, user.id))
+        return fetch_lcsc(code, load_catalog(db, user.id), user_id=user.id)
     except LcscError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

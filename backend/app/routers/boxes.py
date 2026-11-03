@@ -12,7 +12,7 @@ from app.models import Box, Item, ItemLocation, Project, ProjectLine, User
 from app.routers.items import item_out
 from app.schemas import BoxIn, BoxMapOut, BoxOut, CellOut, ItemOut, MapOut, MapStats, PlacedItemOut, ReelSlotOut
 from app.services.spec_config import load_catalog
-from app.services.stock import StockError, line_value, location_views, release_box
+from app.services.stock import StockError, is_low_stock, line_value, location_views, release_box
 
 router = APIRouter(tags=["boxes"])
 
@@ -183,6 +183,7 @@ def inventory_map(
             box_count=len(boxes),
             quantity_total=sum(item.quantity or 0 for item in items),
             total_value=round(total_value, 4),
+            low_stock_count=sum(1 for item in items if is_low_stock(item)),
         ),
         categories=categories,
         boxes=box_maps,

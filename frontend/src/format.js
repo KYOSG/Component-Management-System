@@ -1,3 +1,5 @@
+import { ElMessage } from 'element-plus'
+
 export const MATCH_STATUS = {
   matched: { label: '已匹配', type: 'success' },
   insufficient: { label: '库存不足', type: 'warning' },
@@ -53,10 +55,44 @@ export function itemPayload(item, extra = {}) {
     params: item.params || '',
     specs: { ...(item.specs || {}) },
     quantity: item.quantity || 0,
+    min_stock: item.min_stock || 0,
     unit_price: item.unit_price ?? null,
     datasheet_url: item.datasheet_url || '',
     image_url: item.image_url || '',
     remark: item.remark || '',
     ...extra,
   }
+}
+
+function pickFilename(header, fallback) {
+  const text = header || ''
+  const encoded = text.match(/filename\*=UTF-8''([^;]+)/i)
+  if (encoded) return decodeURIComponent(encoded[1])
+  const plain = text.match(/filename="?([^";]+)"?/i)
+  return plain ? plain[1] : fallback
+}
+
+export async function downloadFile(http, url, params, fallback) {
+  let response
+  try {
+    response = await http.get(url, { params, responseType: 'blob' })
+  } catch (error) {
+    const blob = error.response?.data
+    if (blob instanceof Blob) {
+      try {
+        const detail = JSON.parse(await blob.text()).detail
+        if (typeof detail === 'string') ElMessage.error(detail)
+      } catch {
+        // 响应不是 JSON，交给默认提示
+      }
+    }
+    throw error
+  }
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(response.data)
+  link.download = pickFilename(response.headers['content-disposition'], fallback)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }

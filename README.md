@@ -1,8 +1,6 @@
-# 物品映射
+# 电子元件库
 
-物料库、物料盒地图、BOM 导入与匹配。账号登录后数据按用户隔离。
-
-后端启动时会检查数据库。数据库不存在就先创建，并写入管理员账号 `admin`，密码 `admin`。库已经存在但还没有这个账号时也会补上，已有账号的密码不会被重置。管理员登录后可以在「账户管理」里增删改查账号；删除账号会同时删除该账号的物料、物料盒和项目。
+物料库、物料盒地图、BOM 导入与匹配。账号登录后数据按用户隔离：物料、物料盒、BOM、参数配置、物料图片都只有本人能看到。
 
 ## 本地启动
 
@@ -20,81 +18,57 @@ uvicorn app.main:app --reload --port 8000
 
 ```powershell
 cd frontend
-npm run serve
 npm install
+npm run serve
 ```
 
 浏览器打开 `http://localhost:8080`。开发服务器把 `/api` 转发到 `8000`。
 
-## Docker
+## 首次登录与账号
 
-在项目根目录准备 `.env`（可从 `.env.example` 复制），然后：
+- 数据库不存在时，后端启动会自动创建，并写入管理员账号 `admin`，密码 `admin`。首次登录后必须先改密码，改完才能使用其他功能。
+- 注册默认关闭。管理员可以在「系统配置 → 基本设置」里打开「允许注册」，或者直接在「账户管理」里建账号。
+- 修改密码后，其他设备上的登录会失效。删除账号会同时删除该账号的物料、物料盒、BOM 和图片。
+- 同一账号 15 分钟内输错 10 次密码会暂时锁定登录。
 
-```powershell
-docker compose up -d --build
-```
+数据库结构变化后不做自动迁移。旧版本留下的 `backend/data/app.db` 缺少新字段时，请先用「下载备份」或直接复制文件留底，然后删除它，让后端重新建库。
 
-浏览器打开 `http://localhost:8000`。SQLite 数据库和物料图片都在数据卷 `/data` 里。
+## 功能说明
 
-## 服务器部署包
-
-在开发机项目根目录执行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy\pack.ps1
-```
-
-得到 `release\cms-deploy.zip`。上传到 Linux 服务器后：
-
-```bash
-unzip cms-deploy.zip -d cms
-cd cms
-chmod +x deploy/up.sh
-./deploy/up.sh
-```
-
-脚本会在没有 `.env` 时自动生成，并写入随机 `SECRET_KEY`。浏览器打开 `http://服务器IP:8000`。首次启动的管理员账号是 `admin` / `admin`，登录后请立刻修改。
-
-服务器需要已安装 Docker Engine 和 Compose 插件，并且第一次构建时能访问 Docker Hub、npm 和 PyPI。数据库在名为 `cms-data` 的卷里，重新构建镜像不会清掉已有数据。
-
-## 1Panel
-
-页面和接口打在同一个目录里，由一个 Python 进程一起提供。在开发机执行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File deploy\pack-1panel.ps1
-```
-
-得到 `release\cms-1panel.zip`。上传到 1Panel 所在服务器并解压，然后在「网站 → 运行环境」里创建 Python 3.11 或 3.12 环境：
-
-- 运行目录：解压后的目录
-- 应用端口：`8000`
-- 启动命令：`pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple && python run.py`
-
-启动后，用这个运行环境创建网站。没有域名时打开端口外部访问，浏览器打开 `http://服务器IP:8000`。详细步骤在压缩包里的 `DEPLOY.txt`。
-
+- **关键词搜索**：物料库顶部的「搜索」框会拆分输入。例如 `10k 0603` 识别为「电阻 / 10kΩ / 封装 0603」，`100n 50v` 识别为电容 100nF、耐压 50V，`4k7`、`0.1uF`、`10uH` 这类写法也能识别。所有条件都满足才算命中，没有命中时显示空列表。
+- **低库存提醒**：每个物料可以设「低库存阈值」，总库存低于阈值时在物料库里标红，并在顶部提示数量。物料盒地图的统计卡片也会显示低库存物料数。阈值填 0 表示不提醒。
+- **导出**：物料库的「导出 Excel」按当前搜索和筛选条件导出全部结果。
+- **备份**：管理员在「系统配置 → 基本设置」里点「下载备份」，得到一个 zip，里面是当前 SQLite 数据库和物料图片，不含登录密钥。MySQL 请用数据库自带工具备份。
+- **BOM**：「全部加入物料库」和「一键出库」可以重复执行，每次执行都会再入库或再扣一次，所以执行前会弹确认框。AI 给出的替换建议必须先点「使用替换器件」确认，确认前不会出库，也不能调整库存。
+- **删除物料**：删除时会把它的出入库流水一起删掉，统计页里的用量也会随之减少，确认框会提示这一点。
+- **立创编号**：全部按大写保存和匹配，输入 `c25804` 会存成 `C25804`。
 
 ## 环境变量
 
 | 变量 | 作用 |
 | --- | --- |
-| `DATABASE_URL` | 默认 SQLite，可改为 MySQL |
-| `SECRET_KEY` | 登录 Cookie 签名 |
-| `DEEPSEEK_API_KEY` | 留空时只做精确匹配和规则预筛 |
+| `DATABASE_URL` | 默认 `sqlite:///./data/app.db`，可改为 MySQL |
+| `SECRET_KEY` | 登录 Cookie 签名。不设置时自动生成随机密钥，保存在数据库同目录的 `secret_key` 文件里 |
+| `DEEPSEEK_API_KEY` | 留空时只做精确匹配和规则预筛，也可以在系统配置页面填写 |
 | `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 默认 `deepseek-chat` |
 | `COOKIE_SECURE` | HTTPS 部署时设为 `1` |
+| `STATIC_DIR` | 指向前端 `dist` 目录时，由后端同时提供页面 |
 
-立创商品查询和 DeepSeek 只在服务端调用，密钥不会进入前端包。
+立创商品查询和 DeepSeek 只在服务端调用，密钥不会进入前端包。系统配置页面只显示 API Key 的首尾几位。
+
+## 测试
+
+```powershell
+cd backend
+.venv\Scripts\python -m pytest -q
+```
+
+`tests/test_lcsc.py::test_live_c105580` 会真实访问立创商城，必须联网。如果环境变量 `NO_PROXY` 里写了带方括号的 `[::1]`，httpx 会报 `Invalid port: ':1]'`，改成 `localhost,127.0.0.1,::1` 即可。
 
 ## 样例
 
-`temp` 目录中的两份文件可直接上传：
+`backend/tests/fixtures` 目录中的两份文件可直接上传：
 
 - `BOM_V1.31_V1.31_2026-10-23.xlsx`：立创 EDA 分组 BOM，有效物料 45 条（序号 1 到 45，文件末尾有一行空行）
 - `树莓派_PIOC2_RP2354B系统板_PCB1_20261020_083237-立创_20261020.xls`：立创商城报价单，采购套数 2，含 `C105580` 和位号 `R13,R14`
-
-## 备注
-项目在第一次启动之前会自己新建一个SQLite数据库，并填入一个管理员账号
-账号：admin
-密码：admin

@@ -14,6 +14,11 @@ class StockError(Exception):
         super().__init__(detail)
 
 
+def is_low_stock(item: Item) -> bool:
+    threshold = item.min_stock or 0
+    return threshold > 0 and (item.quantity or 0) < threshold
+
+
 def line_value(quantity: int, unit_price: float | None) -> float | None:
     if unit_price is None:
         return None

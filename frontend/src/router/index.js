@@ -4,6 +4,7 @@ import http from '../api'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import Login from '../views/Login.vue'
 import Register from '../views/Register.vue'
+import ChangePassword from '../views/ChangePassword.vue'
 import Items from '../views/Items.vue'
 import MapView from '../views/Map.vue'
 import Projects from '../views/Projects.vue'
@@ -18,6 +19,7 @@ const router = createRouter({
   routes: [
     { path: '/login', component: Login, meta: { public: true, title: '登录' } },
     { path: '/register', component: Register, meta: { public: true, title: '注册' } },
+    { path: '/password', component: ChangePassword, meta: { title: '修改密码' } },
     {
       path: '/',
       component: AdminLayout,
@@ -30,7 +32,7 @@ const router = createRouter({
         { path: 'statistics', component: Statistics, meta: { title: '物料统计' } },
         { path: 'users', component: Users, meta: { title: '账户管理', admin: true } },
         { path: 'settings', component: Settings, meta: { title: '系统配置', admin: true } },
-        { path: 'settings/categories', component: SpecCategories, meta: { title: '参数配置', admin: true } },
+        { path: 'settings/categories', component: SpecCategories, meta: { title: '参数配置' } },
         { path: 'categories', redirect: '/settings/categories' },
       ],
     },
@@ -41,6 +43,7 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true
   try {
     const { data } = await http.get('/auth/me')
+    if (data.must_change_password && to.path !== '/password') return '/password'
     if (to.matched.some((record) => record.meta.admin) && !data.is_admin) return '/items'
     return true
   } catch {

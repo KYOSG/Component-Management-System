@@ -134,10 +134,10 @@ def local_match_lines(
 
 
 def exact_lcsc_result(line: LineSnap, items: list[ItemSnap]) -> MatchResult | None:
-    code = (line.lcsc_code or "").strip().lower()
+    code = (line.lcsc_code or "").strip().upper()
     if not code:
         return None
-    hits = [item for item in items if (item.lcsc_code or "").strip().lower() == code]
+    hits = [item for item in items if (item.lcsc_code or "").strip().upper() == code]
     if not hits:
         return None
     return _exact_result(line, hits)
@@ -228,13 +228,13 @@ def match_lines(
 
 
 def _exact_hits(line: LineSnap, items: list[ItemSnap]) -> list[ItemSnap]:
-    code = (line.lcsc_code or "").strip().lower()
+    code = (line.lcsc_code or "").strip().upper()
     mpn = norm_mpn(line.mpn)
     found: list[ItemSnap] = []
     seen: set[int] = set()
     for item in items:
         matched = False
-        if code and (item.lcsc_code or "").strip().lower() == code:
+        if code and (item.lcsc_code or "").strip().upper() == code:
             matched = True
         elif mpn and norm_mpn(item.mpn) == mpn:
             matched = True
@@ -263,7 +263,7 @@ def _exact_result(line: LineSnap, hits: list[ItemSnap]) -> MatchResult:
             -item.id,
         ),
     )
-    by_code = (line.lcsc_code or "").strip() and (chosen.lcsc_code or "").strip().lower() == line.lcsc_code.strip().lower()
+    by_code = (line.lcsc_code or "").strip() and (chosen.lcsc_code or "").strip().upper() == line.lcsc_code.strip().upper()
     reason = "" if by_code else "厂家型号一致"
     status = "insufficient" if chosen.quantity < line.quantity_required else "matched"
     ordered = [chosen] + [item for item in hits if item.id != chosen.id]

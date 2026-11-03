@@ -7,6 +7,9 @@ venv/
 data/
 backend/tests/_test.sqlite
 backend/tests/images/
+backend/tests/active_database.json*
+secret_key
+temp/
 .env
 .DS_Store
 *.tsbuildinfo

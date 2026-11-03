@@ -132,19 +132,30 @@ def test_admin_can_switch_database(client, tmp_path):
         )
         assert switched.status_code == 200, switched.text
         assert switched.json()["database_name"] == "next.db"
+        assert switched.json()["database_switched"] is True
         assert (target / "next.db").is_file()
         assert database.pointer_file().is_file()
+        # 切库后旧会话失效，新库里的 admin 需要先改初始密码
+        assert client.get("/api/auth/me").status_code == 401
+        again = client.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+        assert again.status_code == 200, again.text
+        assert again.json()["must_change_password"] is True
+        assert client.get("/api/items").status_code == 403
+        changed = client.post("/api/auth/password", json={"old_password": "admin", "new_password": "admin-2"})
+        assert changed.status_code == 200, changed.text
         assert client.get("/api/settings").json() == {
             "database_location": str(target),
             "database_name": "next.db",
             "deepseek_api_key": "",
+            "deepseek_api_key_set": False,
             "deepseek_base_url": "https://api.deepseek.com",
             "deepseek_model": "deepseek-chat",
+            "allow_register": True,
+            "database_switched": False,
         }
-        assert client.get("/api/auth/me").json()["email"] == "admin"
         assert client.get("/api/items").json()["total"] == 0
         with TestClient(app) as fresh:
-            fresh.post("/api/auth/login", json={"email": "admin", "password": "admin"})
+            fresh.post("/api/auth/login", json={"email": "admin", "password": "admin-2"})
             assert fresh.get("/api/items").json()["total"] == 0
     finally:
         if not database.same_sqlite(database.current_url, before_url):
@@ -178,7 +189,9 @@ def test_ai_settings_are_stored_and_enable_matching(client, monkeypatch):
         },
     )
     assert saved.status_code == 200, saved.text
-    assert saved.json()["deepseek_api_key"] == "sk-test"
+    masked = saved.json()["deepseek_api_key"]
+    assert masked != "sk-test" and "sk-test" not in client.get("/api/settings").text
+    assert saved.json()["deepseek_api_key_set"] is True
     assert saved.json()["deepseek_base_url"] == "https://example.com/v1"
     assert saved.json()["deepseek_model"] == "deepseek-reasoner"
     try:
@@ -192,8 +205,19 @@ def test_ai_settings_are_stored_and_enable_matching(client, monkeypatch):
         assert imported.json()["ai_enabled"] is True
         rejected = client.put("/api/settings", json={**current, "deepseek_base_url": "ftp://nope"})
         assert rejected.status_code == 400
-        assert client.get("/api/settings").json()["deepseek_api_key"] == "sk-test"
+        # 原样提交掩码不会覆盖已保存的 Key
+        kept = client.put("/api/settings", json={**client.get("/api/settings").json(), "deepseek_model": "deepseek-chat"})
+        assert kept.status_code == 200, kept.text
+        assert kept.json()["deepseek_api_key"] == masked
+        from app.database import SessionLocal
+        from app.services.system_config import read_settings
+
+        db = SessionLocal()
+        try:
+            assert read_settings(db).deepseek_api_key == "sk-test"
+        finally:
+            db.close()
     finally:
         cleared = client.put("/api/settings", json={**current, "deepseek_api_key": ""})
         assert cleared.status_code == 200, cleared.text
-        assert client.get("/api/settings").json()["deepseek_api_key"] == ""
+        assert client.get("/api/settings").json()["deepseek_api_key_set"] is False

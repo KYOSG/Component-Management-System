@@ -29,6 +29,7 @@ from app.services.stock import change_quantity, place_snapshots
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+CONFIRMED_STATUSES = ("matched", "insufficient")
 
 
 def _place_text(place: dict) -> str:
@@ -141,7 +142,7 @@ def _enrich_lines(lines: list[ParsedLine], catalog: SpecCatalog | None = None) -
 
 
 def _find_lib_item(db: Session, user_id: int, line: ProjectLine) -> Item | None:
-    code = (line.lcsc_code or "").strip()
+    code = (line.lcsc_code or "").strip().upper()
     if code:
         return db.scalar(select(Item).where(Item.user_id == user_id, Item.lcsc_code == code))
     category = (line.category or "").strip()
@@ -404,7 +405,7 @@ def add_all(project_id: int, user: User = Depends(get_current_user), db: Session
         item = _find_lib_item(db, user.id, line)
         amount = line.quantity_required or 0
         if item is None:
-            code = (line.lcsc_code or "").strip() or None
+            code = (line.lcsc_code or "").strip().upper() or None
             item = Item(
                 user_id=user.id,
                 lcsc_code=code,
@@ -442,7 +443,7 @@ def checkout(project_id: int, user: User = Depends(get_current_user), db: Sessio
     linked: list[ProjectLine] = []
     skipped = 0
     for line in lines:
-        if not line.matched_item_id:
+        if not line.matched_item_id or line.match_status not in CONFIRMED_STATUSES:
             skipped += 1
             continue
         linked.append(line)
@@ -482,6 +483,8 @@ def checkout_line(
     line = _own_line(db, project, line_id)
     if not line.matched_item_id:
         raise HTTPException(status_code=400, detail="这条明细还没有对应的库存物料")
+    if line.match_status not in CONFIRMED_STATUSES:
+        raise HTTPException(status_code=400, detail="替换建议尚未确认，请先点击“使用”后再出库")
     item = db.scalar(select(Item).where(Item.id == line.matched_item_id, Item.user_id == user.id))
     if item is None:
         raise HTTPException(status_code=400, detail="库存物料不存在")
@@ -509,11 +512,11 @@ def replace_line(
         if item is None:
             raise HTTPException(status_code=404, detail="库存物料不存在")
     else:
-        code = (body.lcsc_code or "").strip()
+        code = (body.lcsc_code or "").strip().upper()
         if not code:
             raise HTTPException(status_code=400, detail="请选择库中物料或填写立创编号")
         catalog = load_catalog(db, user.id)
-        item = db.scalar(select(Item).where(Item.user_id == user.id, func.lower(Item.lcsc_code) == code.lower()))
+        item = db.scalar(select(Item).where(Item.user_id == user.id, Item.lcsc_code == code))
         if item is None:
             try:
                 info = fetch_lcsc(code, catalog)
@@ -521,7 +524,7 @@ def replace_line(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             item = Item(
                 user_id=user.id,
-                lcsc_code=(info.get("lcsc_code") or code).strip() or None,
+                lcsc_code=(info.get("lcsc_code") or code).strip().upper() or None,
                 mpn=info.get("mpn") or "",
                 name=info.get("name") or "",
                 brand=info.get("brand") or "",
@@ -575,6 +578,8 @@ def stock_delta(
     line = _own_line(db, project, line_id)
     if not line.matched_item_id:
         raise HTTPException(status_code=400, detail="这条明细还没有对应的库存物料")
+    if line.match_status not in CONFIRMED_STATUSES:
+        raise HTTPException(status_code=400, detail="替换建议尚未确认，请先点击“使用”后再调整库存")
     item = db.scalar(select(Item).where(Item.id == line.matched_item_id, Item.user_id == user.id))
     if item is None:
         raise HTTPException(status_code=400, detail="库存物料不存在")
@@ -600,7 +605,7 @@ def adopt_line(
     catalog = load_catalog(db, user.id)
     warning = ""
     try:
-        info = fetch_lcsc(line.lcsc_code, catalog)
+        info = fetch_lcsc(line.lcsc_code, catalog, user_id=user.id)
     except LcscError:
         info = {
             "lcsc_code": line.lcsc_code,
@@ -619,7 +624,7 @@ def adopt_line(
         }
         warning = "立创查询失败，已用 BOM 中的字段预填，请核对后手填"
     return AdoptOut(
-        lcsc_code=info.get("lcsc_code") or line.lcsc_code,
+        lcsc_code=(info.get("lcsc_code") or line.lcsc_code or "").strip().upper() or None,
         mpn=info.get("mpn") or "",
         name=info.get("name") or "",
         brand=info.get("brand") or "",

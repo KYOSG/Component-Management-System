@@ -25,7 +25,7 @@ module.exports = defineConfig({
   },
   chainWebpack: (config) => {
     config.plugin('html').tap((args) => {
-      args[0].title = '物品映射'
+      args[0].title = '电子元件库'
       return args
     })
   },

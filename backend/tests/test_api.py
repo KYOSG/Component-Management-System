@@ -417,7 +417,7 @@ def test_replace_bom_line_with_library_item_leaves_stock_unchanged(client, monke
     assert stored["quantity"] == 9
     assert stored["mpn"] == "LIB-555"
 
-    def fake_fetch(code, catalog=None):
+    def fake_fetch(code, catalog=None, **_kwargs):
         assert code == "C777"
         return {
             "lcsc_code": "C777",

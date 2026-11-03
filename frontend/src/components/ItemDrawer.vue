@@ -25,6 +25,7 @@ const empty = () => ({
   params: '',
   specs: {},
   quantity: 0,
+  min_stock: 0,
   unit_price: null,
   locations: [],
   box_id: null,
@@ -118,8 +119,9 @@ function onBoxChange() {
 }
 
 async function queryLcsc() {
-  const code = (form.lcsc_code || '').trim()
+  const code = (form.lcsc_code || '').trim().toUpperCase()
   if (!code) return
+  form.lcsc_code = code
   querying.value = true
   try {
     const { data } = await http.get(`/lcsc/${encodeURIComponent(code)}`)
@@ -130,6 +132,7 @@ async function queryLcsc() {
       col: form.col,
       slot_index: form.slot_index,
       remark: form.remark,
+      min_stock: form.min_stock,
       locations: form.locations,
     }
     Object.assign(form, {
@@ -195,7 +198,12 @@ async function save() {
   <el-drawer :model-value="modelValue" :title="title" size="520px" @close="close">
     <el-form label-width="168px" @submit.prevent>
       <el-form-item label="立创编号">
-        <el-input v-model="form.lcsc_code" clearable placeholder="例如 C105580">
+        <el-input
+          :model-value="form.lcsc_code"
+          clearable
+          placeholder="例如 C105580"
+          @update:model-value="(value) => (form.lcsc_code = (value || '').toUpperCase())"
+        >
           <template #append>
             <el-button :loading="querying" @click="queryLcsc">查询</el-button>
           </template>
@@ -255,6 +263,10 @@ async function save() {
         <el-input-number v-model="form.quantity" :min="0" :step="1" />
         <div v-if="!form.id && (form.slot_index || (form.box_id && form.row && form.col))" class="muted">这里填写的数量记一次新入库，保存后转入目标位置。</div>
         <div v-else class="muted">改的是总库存。增加的数量记为未入库，不能低于已放入盒子和料卷的数量。</div>
+      </el-form-item>
+      <el-form-item label="低库存阈值">
+        <el-input-number v-model="form.min_stock" :min="0" :step="1" :precision="0" :value-on-clear="0" />
+        <div class="muted">总库存低于这个数时在物料库里标红提醒。填 0 表示不提醒。</div>
       </el-form-item>
       <el-form-item v-if="form.id" label="存放位置">
         <div v-for="loc in form.locations" :key="loc.id">{{ placeText(loc) }}</div>

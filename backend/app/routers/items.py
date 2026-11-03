@@ -1,20 +1,27 @@
 from __future__ import annotations
 
+import io
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select, update
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Item, ItemLocation, ProjectLine, User, utcnow
-from app.schemas import ItemCheckoutIn, ItemIn, ItemOut, ItemPage, LcscCreateIn
+from app.schemas import ItemCheckoutIn, ItemIn, ItemOut, ItemPage, LcscCreateIn, LocationOut, SearchHint
 from app.services.images import assign_image, delete_item_image, display_image_url
 from app.services.lcsc import LcscError, fetch_lcsc
+from app.services.search import item_view, plan_query
 from app.services.spec_config import load_catalog
 from app.services.specs import SpecCatalog, SpecValidationError, dump_specs, load_specs
 from app.services.stock import (
     StockError,
     checkout_location,
+    is_low_stock,
     line_value,
     location_views,
     set_total_quantity,
@@ -23,9 +30,15 @@ from app.services.stock import (
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
+LOW_STOCK = and_(Item.min_stock > 0, Item.quantity < Item.min_stock)
+EXPORT_HEADERS = (
+    "立创编号", "厂家型号", "商品名称", "品牌", "封装", "类目", "值", "规格", "参数",
+    "库存", "低库存阈值", "低库存", "单价", "金额", "存放位置", "手册", "备注", "更新时间",
+)
+
 
 def clean_code(value: str | None) -> str | None:
-    text = (value or "").strip()
+    text = (value or "").strip().upper()
     return text or None
 
 
@@ -47,11 +60,13 @@ def item_out(item: Item, catalog: SpecCatalog, locations) -> ItemOut:
         params=item.params or "",
         specs=catalog.present(item.category or "", load_specs(item.specs), item.params or ""),
         quantity=item.quantity or 0,
+        min_stock=item.min_stock or 0,
+        low_stock=is_low_stock(item),
         unit_price=price,
         total_value=line_value(item.quantity or 0, price),
         locations=locations,
         datasheet_url=item.datasheet_url or "",
-        image_url=display_image_url(item.image_url or ""),
+        image_url=display_image_url(item.image_url or "", item.user_id),
         remark=item.remark or "",
         created_at=item.created_at,
         updated_at=item.updated_at,
@@ -91,6 +106,7 @@ def apply_fields(db: Session, user: User, item: Item, data: ItemIn, catalog: Spe
         item.specs = dump_specs(catalog.clean(item.category, data.specs, strict=True))
     except SpecValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    item.min_stock = data.min_stock
     item.unit_price = data.unit_price
     item.datasheet_url = data.datasheet_url.strip()
     item.remark = data.remark.strip()
@@ -98,8 +114,47 @@ def apply_fields(db: Session, user: User, item: Item, data: ItemIn, catalog: Spe
 
 
 def contains(column, text: str):
-    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    escaped = text.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_")
     return column.like(f"%{escaped}%", escape="\\")
+
+
+def _field_filters(user: User, fields: dict[str, str], low_stock: bool) -> list:
+    filters = [Item.user_id == user.id]
+    for column, key in (
+        (Item.lcsc_code, "lcsc_code"),
+        (Item.mpn, "mpn"),
+        (Item.name, "name"),
+        (Item.footprint, "footprint"),
+        (Item.category, "category"),
+        (Item.remark, "remark"),
+    ):
+        text = (fields.get(key) or "").strip()
+        if text:
+            filters.append(contains(column, text))
+    if low_stock:
+        filters.append(LOW_STOCK)
+    return filters
+
+
+def find_items(
+    db: Session,
+    user: User,
+    catalog: SpecCatalog,
+    q: str,
+    fields: dict[str, str],
+    low_stock: bool,
+) -> tuple[list[Item], list[SearchHint]]:
+    filters = _field_filters(user, fields, low_stock)
+    rows = list(db.scalars(select(Item).where(*filters).order_by(Item.id.desc())).all())
+    plan = plan_query(q, [category.name for category in catalog.categories])
+    if not plan:
+        return rows, []
+    hits = [item for item in rows if plan.matches(item_view(item, load_specs(item.specs)))]
+    return hits, [SearchHint(**hint) for hint in plan.hints()]
+
+
+def low_stock_count(db: Session, user_id: int) -> int:
+    return db.scalar(select(func.count()).select_from(Item).where(Item.user_id == user_id, LOW_STOCK)) or 0
 
 
 @router.get("", response_model=ItemPage)
@@ -113,45 +168,103 @@ def list_items(
     footprint: str = "",
     category: str = "",
     remark: str = "",
+    low_stock: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ItemPage:
-    filters = [Item.user_id == user.id]
-    keyword = q.strip()
-    if keyword:
-        filters.append(
-            or_(
-                contains(Item.lcsc_code, keyword),
-                contains(Item.mpn, keyword),
-                contains(Item.name, keyword),
-                contains(Item.brand, keyword),
-                contains(Item.footprint, keyword),
-                contains(Item.category, keyword),
-                contains(Item.value, keyword),
-            )
-        )
-    for column, text in (
-        (Item.lcsc_code, lcsc_code),
-        (Item.mpn, mpn),
-        (Item.name, name),
-        (Item.footprint, footprint),
-        (Item.category, category),
-        (Item.remark, remark),
-    ):
-        if text.strip():
-            filters.append(contains(column, text.strip()))
-    total = db.scalar(select(func.count()).select_from(Item).where(*filters)) or 0
     catalog = load_catalog(db, user.id)
-    rows = list(
-        db.scalars(
-            select(Item).where(*filters).order_by(Item.id.desc()).offset((page - 1) * page_size).limit(page_size)
-        ).all()
-    )
+    fields = {"lcsc_code": lcsc_code, "mpn": mpn, "name": name, "footprint": footprint, "category": category, "remark": remark}
+    rows, hints = find_items(db, user, catalog, q, fields, low_stock)
+    start = (page - 1) * page_size
     return ItemPage(
-        total=total,
+        total=len(rows),
         page=page,
         page_size=page_size,
-        items=present_items(db, rows, catalog),
+        items=present_items(db, rows[start : start + page_size], catalog),
+        hints=hints,
+        low_stock_count=low_stock_count(db, user.id),
+    )
+
+
+def _place_label(place: LocationOut) -> str:
+    if place.location_type == "unboxed":
+        where = "未入盒"
+    elif place.location_type == "tape_reel":
+        where = f"{place.box_name or '料卷盒'} {place.reel_label or place.slot_index or ''}".strip()
+    else:
+        where = f"{place.box_name or '物料盒'} {place.row}-{place.col}"
+    return f"{where} ×{place.quantity}"
+
+
+def _spec_text(catalog: SpecCatalog, item: Item, shown: dict[str, str]) -> str:
+    labels = {field.key: field.label for field in catalog.fields_for(item.category or "")}
+    return "；".join(f"{labels.get(key, key)}: {value}" for key, value in shown.items())
+
+
+def _safe_cell(value):
+    # 防止表格把以 = + - @ 开头的文本当成公式执行。
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
+def _export_row(catalog: SpecCatalog, item: Item, places: list[LocationOut]) -> list:
+    shown = catalog.present(item.category or "", load_specs(item.specs), item.params or "")
+    record = (
+        item.lcsc_code or "",
+        item.mpn or "",
+        item.name or "",
+        item.brand or "",
+        item.footprint or "",
+        item.category or "",
+        item.value or "",
+        _spec_text(catalog, item, shown),
+        item.params or "",
+        item.quantity or 0,
+        item.min_stock or 0,
+        "是" if is_low_stock(item) else "",
+        item.unit_price,
+        line_value(item.quantity or 0, item.unit_price),
+        "；".join(_place_label(place) for place in places),
+        item.datasheet_url or "",
+        item.remark or "",
+        item.updated_at.strftime("%Y-%m-%d %H:%M") if item.updated_at else "",
+    )
+    return [_safe_cell(value) for value in record]
+
+
+@router.get("/export")
+def export_items(
+    q: str = "",
+    lcsc_code: str = "",
+    mpn: str = "",
+    name: str = "",
+    footprint: str = "",
+    category: str = "",
+    remark: str = "",
+    low_stock: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    catalog = load_catalog(db, user.id)
+    fields = {"lcsc_code": lcsc_code, "mpn": mpn, "name": name, "footprint": footprint, "category": category, "remark": remark}
+    rows, _hints = find_items(db, user, catalog, q, fields, low_stock)
+    views = location_views(db, [item.id for item in rows])
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "物料库"
+    sheet.append(EXPORT_HEADERS)
+    for item in rows:
+        sheet.append(_export_row(catalog, item, views.get(item.id, [])))
+    sheet.freeze_panes = "A2"
+    buffer = io.BytesIO()
+    book.save(buffer)
+    buffer.seek(0)
+    filename = f"items-{datetime.now():%Y%m%d-%H%M%S}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -165,11 +278,11 @@ def create_from_lcsc(
     if not code:
         raise HTTPException(status_code=400, detail="请填写立创编号")
     catalog = load_catalog(db, user.id)
-    found = db.scalar(select(Item).where(Item.user_id == user.id, func.lower(Item.lcsc_code) == code.lower()))
+    found = db.scalar(select(Item).where(Item.user_id == user.id, Item.lcsc_code == code))
     if found is not None:
         return present_item(db, found, catalog)
     try:
-        info = fetch_lcsc(code, catalog)
+        info = fetch_lcsc(code, catalog, user_id=user.id)
     except LcscError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     item = Item(

@@ -16,6 +16,7 @@ DATABASE_NAME = "database_name"
 DEEPSEEK_API_KEY = "deepseek_api_key"
 DEEPSEEK_BASE_URL = "deepseek_base_url"
 DEEPSEEK_MODEL = "deepseek_model"
+ALLOW_REGISTER = "allow_register"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-chat"
 _CONFIG_KEYS = (
@@ -24,6 +25,7 @@ _CONFIG_KEYS = (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
+    ALLOW_REGISTER,
 )
 _lock = threading.Lock()
 
@@ -35,6 +37,7 @@ class SystemSettings:
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
+    allow_register: bool = False
 
     @property
     def ai_enabled(self) -> bool:
@@ -78,7 +81,22 @@ def read_settings(db: Session) -> SystemSettings:
         deepseek_api_key=found[DEEPSEEK_API_KEY] if DEEPSEEK_API_KEY in found else env_key,
         deepseek_base_url=found[DEEPSEEK_BASE_URL] if DEEPSEEK_BASE_URL in found else env_url,
         deepseek_model=found[DEEPSEEK_MODEL] if DEEPSEEK_MODEL in found else env_model,
+        allow_register=found.get(ALLOW_REGISTER) == "1",
     )
+
+
+def registration_open(db: Session) -> bool:
+    row = db.get(SystemConfig, ALLOW_REGISTER)
+    return row is not None and row.value == "1"
+
+
+def mask_key(key: str) -> str:
+    text = (key or "").strip()
+    if not text:
+        return ""
+    if len(text) <= 8:
+        return "*" * 8
+    return f"{text[:3]}{'*' * 8}{text[-4:]}"
 
 
 def write_settings(db: Session, settings: SystemSettings) -> None:
@@ -89,6 +107,7 @@ def write_settings(db: Session, settings: SystemSettings) -> None:
         DEEPSEEK_API_KEY: settings.deepseek_api_key,
         DEEPSEEK_BASE_URL: settings.deepseek_base_url,
         DEEPSEEK_MODEL: settings.deepseek_model,
+        ALLOW_REGISTER: "1" if settings.allow_register else "0",
     }
     for key, value in values.items():
         row = db.get(SystemConfig, key)
@@ -113,6 +132,7 @@ def ensure_settings(session_factory: sessionmaker, url: str) -> None:
     defaults[DEEPSEEK_API_KEY] = env_key
     defaults[DEEPSEEK_BASE_URL] = env_url
     defaults[DEEPSEEK_MODEL] = env_model
+    defaults[ALLOW_REGISTER] = "0"
     db = session_factory()
     try:
         existing = set(db.scalars(select(SystemConfig.key)).all())
@@ -125,7 +145,7 @@ def ensure_settings(session_factory: sessionmaker, url: str) -> None:
         db.close()
 
 
-def switch_database(settings: SystemSettings, db: Session | None = None) -> SystemSettings:
+def switch_database(settings: SystemSettings, db: Session | None = None) -> tuple[SystemSettings, bool]:
     location = (settings.database_location or "").strip()
     name = (settings.database_name or "").strip()
     if not location:
@@ -140,7 +160,7 @@ def switch_database(settings: SystemSettings, db: Session | None = None) -> Syst
     if not database.same_sqlite(url, database.current_url):
         if not name.lower().endswith(".db") or not Path(name).stem:
             raise DatabaseSwitchError("数据库名字需要以 .db 结尾")
-    stored = SystemSettings(location, name, api_key, base_url, model)
+    stored = SystemSettings(location, name, api_key, base_url, model, settings.allow_register)
     with _lock:
         if database.same_sqlite(url, database.current_url):
             if db is None:
@@ -155,7 +175,7 @@ def switch_database(settings: SystemSettings, db: Session | None = None) -> Syst
                 database.write_pointer(location, name)
             except OSError as exc:
                 raise DatabaseSwitchError(f"无法保存数据库位置：{exc}") from exc
-            return stored
+            return stored, False
         new_engine = database.make_engine(url)
         new_session = sessionmaker(bind=new_engine, autoflush=False, expire_on_commit=False)
         try:
@@ -179,4 +199,4 @@ def switch_database(settings: SystemSettings, db: Session | None = None) -> Syst
             raise DatabaseSwitchError(f"无法切换到目标数据库：{exc}") from exc
         previous = database.install_engine(url, new_engine, new_session)
         previous.dispose()
-        return stored
+        return stored, True
