@@ -12,6 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite:///" + DB_PATH.as_posix()
 os.environ["SECRET_KEY"] = "test-secret"
 os.environ["DEEPSEEK_API_KEY"] = ""
 os.environ["STATIC_DIR"] = ""
+os.environ["LCSC_REFRESH_WORKER"] = "0"
 
 import pytest
 from fastapi.testclient import TestClient

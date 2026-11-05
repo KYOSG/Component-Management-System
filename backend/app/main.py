@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,12 +12,18 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.bootstrap import prepare_database
 from app.config import get_settings
 from app.routers import auth, boxes, items, lcsc, locations, media, projects, settings, spec_categories, statistics, transfer, users
+from app.services.lcsc_refresh import start_worker, stop_worker
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     prepare_database()
-    yield
+    if os.environ.get("LCSC_REFRESH_WORKER", "1") != "0":
+        start_worker()
+    try:
+        yield
+    finally:
+        stop_worker()
 
 
 class SPAStaticFiles(StaticFiles):

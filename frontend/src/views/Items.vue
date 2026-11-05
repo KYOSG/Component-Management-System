@@ -1,7 +1,7 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { reportRequestError } from '../api'
 import { downloadFile, money, placeText } from '../format'
 import { filledSpecs, loadCatalog } from '../specCatalog'
@@ -19,6 +19,11 @@ const hints = ref([])
 const lowCount = ref(0)
 const exporting = ref(false)
 const orderVisible = ref(false)
+const tableRef = ref(null)
+const selected = ref([])
+const startingRefresh = ref(false)
+const refreshState = ref({ queued: 0, running: 0, failed: 0 })
+let pollTimer = 0
 const filters = reactive({
   page: 1,
   page_size: 20,
@@ -41,24 +46,63 @@ async function loadBoxes() {
   }
 }
 
-async function load() {
-  loading.value = true
+function isSyncing(row) {
+  return row?.lcsc_sync_status === 'queued' || row?.lcsc_sync_status === 'running'
+}
+
+function describeRefresh(data) {
+  const parts = []
+  if (data.queued) parts.push(`已加入后台更新 ${data.queued} 条`)
+  if (data.skipped_busy) parts.push(`${data.skipped_busy} 条正在更新，已跳过`)
+  if (data.skipped_no_code) parts.push(`${data.skipped_no_code} 条没有立创编号`)
+  if (!parts.length) return '没有可更新的物料'
+  if (data.queued) parts.push('大约每分钟不超过 30 条，完成前不能编辑或再次查询')
+  return parts.join('，')
+}
+
+async function load(options) {
+  const silent = Boolean(options && typeof options === 'object' && options.silent)
+  if (!silent) loading.value = true
+  let ok = false
   try {
-    await loadCatalog(true)
+    if (!silent) await loadCatalog(true)
     const { data } = await http.get('/items', { params: filters })
     rows.value = data.items
     total.value = data.total
     hints.value = data.hints || []
     lowCount.value = data.low_stock_count || 0
+    const status = await http.get('/items/lcsc-refresh/status')
+    refreshState.value = status.data
+    syncEditing()
+    ok = true
   } catch (error) {
     reportRequestError(error)
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
+    if (ok) schedulePoll()
+    else window.clearTimeout(pollTimer)
   }
+}
+
+function syncEditing() {
+  if (!editing.value?.id) return
+  const fresh = rows.value.find((row) => row.id === editing.value.id)
+  if (!fresh) return
+  const was = editing.value.lcsc_sync_status
+  if (isSyncing(editing.value) || isSyncing(fresh) || was !== fresh.lcsc_sync_status) {
+    editing.value = { ...fresh }
+  }
+}
+
+function schedulePoll() {
+  window.clearTimeout(pollTimer)
+  const active = (refreshState.value.queued || 0) + (refreshState.value.running || 0)
+  if (active > 0) pollTimer = window.setTimeout(() => load({ silent: true }), 3000)
 }
 
 function search() {
   filters.page = 1
+  tableRef.value?.clearSelection()
   load()
 }
 
@@ -75,7 +119,61 @@ function reset() {
     category: '',
     remark: '',
   })
+  tableRef.value?.clearSelection()
   load()
+}
+
+function onSelect(rows) {
+  selected.value = rows
+}
+
+async function refreshSelected() {
+  const chosen = selected.value.filter((row) => String(row.lcsc_code || '').trim())
+  if (!selected.value.length) return
+  if (!chosen.length) {
+    ElMessage.warning('选中的物料没有立创编号')
+    return
+  }
+  const skipped = selected.value.length - chosen.length
+  const extra = skipped ? `另外 ${skipped} 条没有立创编号，会跳过。` : ''
+  try {
+    await ElMessageBox.confirm(
+      `将按立创编号更新选中的 ${chosen.length} 条物料：型号、名称、品牌、封装、类目、标称值、参数、规格、数据手册和图片。已有单价、库存、存放位置、备注和低库存阈值会保留；还没有单价的，会填入立创参考价。${extra}查询在后台进行，大约每分钟不超过 30 条，两次查询之间随机间隔。每条物料更新结束前，不能再次查询或编辑它的字段。`,
+      '更新选中物料',
+      { type: 'warning', confirmButtonText: '开始更新', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  await startRefresh({ item_ids: chosen.map((row) => row.id) })
+}
+
+async function refreshAll() {
+  try {
+    await ElMessageBox.confirm(
+      '将按立创编号更新物料库中全部有编号的物料，不限当前筛选和分页。已有单价、库存、存放位置、备注和低库存阈值会保留；还没有单价的，会填入立创参考价。查询在后台进行，大约每分钟不超过 30 条，两次查询之间随机间隔。每条物料更新结束前，不能再次查询或编辑它的字段。',
+      '更新整库资料',
+      { type: 'warning', confirmButtonText: '开始更新', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  await startRefresh({ all: true })
+}
+
+async function startRefresh(body) {
+  startingRefresh.value = true
+  try {
+    const { data } = await http.post('/items/lcsc-refresh', body)
+    const text = describeRefresh(data)
+    if (data.queued) ElMessage.success(text)
+    else ElMessage.warning(text)
+    await load()
+  } catch (error) {
+    reportRequestError(error)
+  } finally {
+    startingRefresh.value = false
+  }
 }
 
 const fieldKeys = ['lcsc_code', 'mpn', 'name', 'footprint', 'category', 'remark']
@@ -151,6 +249,8 @@ onMounted(async () => {
   await loadBoxes()
   await load()
 })
+
+onBeforeUnmount(() => window.clearTimeout(pollTimer))
 </script>
 
 <template>
@@ -201,17 +301,56 @@ onMounted(async () => {
       >
         <el-button link type="primary" @click="showLow">只看这些</el-button>
       </el-alert>
+      <el-alert
+        v-if="refreshState.queued || refreshState.running"
+        class="low-alert"
+        type="info"
+        show-icon
+        :closable="false"
+        :title="`正在后台更新立创资料：排队 ${refreshState.queued} 条，进行中 ${refreshState.running} 条`"
+        description="大约每分钟不超过 30 条，间隔随机。这些物料在更新完成前不能查询或编辑。可以继续入库或做别的操作。"
+      />
+      <el-alert
+        v-if="refreshState.failed"
+        class="low-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="`有 ${refreshState.failed} 条立创资料更新失败，表格里标出了原因，可以重新更新`"
+      />
       <div class="toolbar">
         <span class="muted">共 {{ total }} 种物料</span>
         <el-checkbox v-model="filters.low_stock" @change="search">只看低库存</el-checkbox>
         <span class="spacer" />
+        <el-button icon="Refresh" :loading="startingRefresh" :disabled="!selected.length" @click="refreshSelected">
+          更新选中<template v-if="selected.length"> · {{ selected.length }}</template>
+        </el-button>
+        <el-button icon="Refresh" :loading="startingRefresh" @click="refreshAll">更新整库</el-button>
         <el-button icon="Download" :loading="exporting" @click="exportExcel">导出 Excel</el-button>
         <el-button type="primary" plain icon="Upload" @click="orderVisible = true">订单入库</el-button>
         <el-button type="primary" icon="Plus" @click="create">新增物料</el-button>
       </div>
-      <el-table v-loading="loading" class="items-table" :data="rows" table-layout="auto">
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        class="items-table"
+        :data="rows"
+        row-key="id"
+        table-layout="auto"
+        @selection-change="onSelect"
+      >
+        <el-table-column type="selection" width="42" reserve-selection align="center" />
         <el-table-column prop="lcsc_code" label="编号" align="center" header-align="center">
-          <template #default="{ row }"><span class="mono">{{ row.lcsc_code || '—' }}</span></template>
+          <template #default="{ row }">
+            <div class="code-cell">
+              <span class="mono">{{ row.lcsc_code || '—' }}</span>
+              <el-tag v-if="row.lcsc_sync_status === 'queued'" size="small" type="info" effect="plain">等待更新</el-tag>
+              <el-tag v-else-if="row.lcsc_sync_status === 'running'" size="small" type="warning" effect="plain">正在更新</el-tag>
+              <el-tooltip v-else-if="row.lcsc_sync_status === 'failed'" :content="row.lcsc_sync_error || '更新失败'" placement="top">
+                <el-tag size="small" type="danger" effect="plain">更新失败</el-tag>
+              </el-tooltip>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column prop="category" label="类目" align="center" header-align="center">
           <template #default="{ row }">{{ row.category || '—' }}</template>
@@ -222,7 +361,7 @@ onMounted(async () => {
         <el-table-column prop="value" label="标称值" align="center" header-align="center">
           <template #default="{ row }"><strong v-if="row.value">{{ row.value }}</strong><span v-else>—</span></template>
         </el-table-column>
-        <el-table-column label="参数" align="center" header-align="center">
+        <el-table-column label="参数(仅显示指定字段)" align="center" header-align="center">
           <template #default="{ row }">
             <template v-if="filledSpecs(row).length">
               <div v-for="field in filledSpecs(row)" :key="field.key" class="spec-line">
@@ -254,7 +393,11 @@ onMounted(async () => {
         <el-table-column label="操作" align="center" header-align="center">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button link type="primary" @click="edit(row)">编辑</el-button>
+              <el-tooltip :disabled="!isSyncing(row)" content="立创资料更新完成前不能编辑" placement="top">
+                <span>
+                  <el-button link type="primary" :disabled="isSyncing(row)" @click="edit(row)">编辑</el-button>
+                </span>
+              </el-tooltip>
               <el-button link type="primary" :disabled="!placed(row)" @click="unbox(row)">移出</el-button>
               <el-button link type="danger" @click="remove(row)">删除</el-button>
             </div>
@@ -318,6 +461,13 @@ onMounted(async () => {
 
 .low-alert {
   margin-bottom: 16px;
+}
+
+.code-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .row-actions {

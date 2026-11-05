@@ -19,3 +19,5 @@ temp/
 backend/data/
 release/
 deploy/
+.vscode/
+skill/

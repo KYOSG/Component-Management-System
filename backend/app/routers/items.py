@@ -19,6 +19,9 @@ from app.schemas import (
     ItemOut,
     ItemPage,
     LcscCreateIn,
+    LcscRefreshIn,
+    LcscRefreshOut,
+    LcscRefreshStatusOut,
     LocationOut,
     OrderCommitIn,
     OrderCommitOut,
@@ -28,6 +31,7 @@ from app.schemas import (
 )
 from app.services.images import assign_image, delete_item_image, display_image_url
 from app.services.lcsc import LcscError, fetch_lcsc
+from app.services.lcsc_refresh import BUSY_DETAIL, kick_refresh, queue_items, refresh_counts
 from app.services.order_import import OrderError, already_imported, apply_order, build_preview, parse_order
 from app.services.search import item_view, plan_query
 from app.services.spec_config import load_catalog
@@ -82,6 +86,8 @@ def item_out(item: Item, catalog: SpecCatalog, locations) -> ItemOut:
         datasheet_url=item.datasheet_url or "",
         image_url=display_image_url(item.image_url or "", item.user_id),
         remark=item.remark or "",
+        lcsc_sync_status=item.lcsc_sync_status or "idle",
+        lcsc_sync_error=item.lcsc_sync_error or "",
         created_at=item.created_at,
         updated_at=item.updated_at,
     )
@@ -124,6 +130,8 @@ def apply_fields(db: Session, user: User, item: Item, data: ItemIn, catalog: Spe
     item.unit_price = data.unit_price
     item.datasheet_url = data.datasheet_url.strip()
     item.remark = data.remark.strip()
+    item.lcsc_sync_status = "idle"
+    item.lcsc_sync_error = ""
     item.updated_at = utcnow()
 
 
@@ -339,12 +347,47 @@ def commit_order(
         result = apply_order(db, user.id, catalog, body.order_no, body.lines)
     except OrderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    refresh_queued = 0
+    if body.refresh_codes:
+        refresh_queued = queue_items(db, user.id, lcsc_codes=body.refresh_codes).queued
     db.commit()
+    if refresh_queued:
+        kick_refresh()
     return OrderCommitOut(
         created=result.created,
         stocked=result.stocked,
         skipped=result.skipped,
         ship_total=result.ship_total,
+        refresh_queued=refresh_queued,
+    )
+
+
+@router.get("/lcsc-refresh/status", response_model=LcscRefreshStatusOut)
+def lcsc_refresh_status(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> LcscRefreshStatusOut:
+    return LcscRefreshStatusOut(**refresh_counts(db, user.id))
+
+
+@router.post("/lcsc-refresh", response_model=LcscRefreshOut)
+def lcsc_refresh(
+    body: LcscRefreshIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> LcscRefreshOut:
+    if body.all:
+        result = queue_items(db, user.id, all_items=True)
+    elif body.item_ids:
+        result = queue_items(db, user.id, item_ids=body.item_ids)
+    else:
+        result = queue_items(db, user.id, lcsc_codes=body.lcsc_codes)
+    db.commit()
+    if result.queued:
+        kick_refresh()
+    return LcscRefreshOut(
+        queued=result.queued,
+        skipped_busy=result.skipped_busy,
+        skipped_no_code=result.skipped_no_code,
+        pending_codes=result.pending_codes,
+        queued_codes=result.queued_codes,
     )
 
 
@@ -428,6 +471,8 @@ def update_item(
     item = db.scalar(select(Item).where(Item.id == item_id, Item.user_id == user.id))
     if item is None:
         raise HTTPException(status_code=404, detail="物料不存在")
+    if (item.lcsc_sync_status or "") in ("queued", "running"):
+        raise HTTPException(status_code=409, detail=BUSY_DETAIL)
     apply_fields(db, user, item, body, catalog)
     try:
         set_total_quantity(db, user.id, item, body.quantity)

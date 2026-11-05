@@ -232,7 +232,7 @@ def test_preview_then_commit_creates_and_increments(client):
 
     committed = client.post("/api/items/order-commit", json=_commit_body(body))
     assert committed.status_code == 200, committed.text
-    assert committed.json() == {"created": 2, "stocked": 2, "skipped": 2, "ship_total": 65}
+    assert committed.json() == {"created": 2, "stocked": 2, "skipped": 2, "ship_total": 65, "refresh_queued": 0}
 
     kept = _find(client, "C100")
     assert len(kept) == 1

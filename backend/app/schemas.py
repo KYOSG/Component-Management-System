@@ -225,6 +225,8 @@ class ItemOut(BaseModel):
     datasheet_url: str
     image_url: str
     remark: str
+    lcsc_sync_status: str = "idle"
+    lcsc_sync_error: str = ""
     created_at: datetime
     updated_at: datetime
 
@@ -590,11 +592,22 @@ class OrderLineIn(BaseModel):
 class OrderCommitIn(BaseModel):
     order_no: str = ""
     lines: list[OrderLineIn] = Field(default_factory=list, max_length=2000)
+    refresh_codes: list[str] = Field(default_factory=list, max_length=2000)
 
     @field_validator("order_no")
     @classmethod
     def order_no_text(cls, value: str) -> str:
         return (value or "").strip()[:128]
+
+    @field_validator("refresh_codes")
+    @classmethod
+    def refresh_codes_text(cls, value: list[str]) -> list[str]:
+        output: list[str] = []
+        for item in value:
+            text = str(item or "").strip().upper()[:64]
+            if text and text not in output:
+                output.append(text)
+        return output
 
 
 class OrderLineOut(BaseModel):
@@ -633,3 +646,41 @@ class OrderCommitOut(BaseModel):
     stocked: int
     skipped: int
     ship_total: int
+    refresh_queued: int = 0
+
+
+class LcscRefreshIn(BaseModel):
+    item_ids: list[int] = Field(default_factory=list, max_length=20000)
+    lcsc_codes: list[str] = Field(default_factory=list, max_length=2000)
+    all: bool = False
+
+    @field_validator("lcsc_codes")
+    @classmethod
+    def codes_text(cls, value: list[str]) -> list[str]:
+        output: list[str] = []
+        for item in value:
+            text = str(item or "").strip().upper()[:64]
+            if text and text not in output:
+                output.append(text)
+        return output
+
+    @model_validator(mode="after")
+    def one_target(self):
+        chosen = int(bool(self.item_ids)) + int(bool(self.lcsc_codes)) + int(self.all)
+        if chosen != 1:
+            raise ValueError("请指定要更新的物料")
+        return self
+
+
+class LcscRefreshOut(BaseModel):
+    queued: int
+    skipped_busy: int = 0
+    skipped_no_code: int = 0
+    pending_codes: list[str] = Field(default_factory=list)
+    queued_codes: list[str] = Field(default_factory=list)
+
+
+class LcscRefreshStatusOut(BaseModel):
+    queued: int = 0
+    running: int = 0
+    failed: int = 0

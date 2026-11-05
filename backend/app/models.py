@@ -91,6 +91,9 @@ class Item(Base):
     datasheet_url: Mapped[str] = mapped_column(Text, default="")
     image_url: Mapped[str] = mapped_column(Text, default="")
     remark: Mapped[str] = mapped_column(Text, default="")
+    lcsc_sync_status: Mapped[str] = mapped_column(String(16), default="idle", server_default="idle")
+    lcsc_sync_error: Mapped[str] = mapped_column(Text, default="", server_default="")
+    lcsc_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

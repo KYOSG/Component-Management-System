@@ -37,9 +37,29 @@ def _seed_admin(session_factory) -> None:
         db.close()
 
 
+def ensure_item_sync_columns(bind) -> None:
+    """旧库没有立创更新状态列时补上。SQLite 的 create_all 不会改已有的表。"""
+    if getattr(bind.dialect, "name", "") != "sqlite":
+        return
+    with bind.begin() as connection:
+        rows = connection.exec_driver_sql("PRAGMA table_info(items)").fetchall()
+        names = {row[1] for row in rows}
+        if not names:
+            return
+        if "lcsc_sync_status" not in names:
+            connection.exec_driver_sql(
+                "ALTER TABLE items ADD COLUMN lcsc_sync_status VARCHAR(16) NOT NULL DEFAULT 'idle'"
+            )
+        if "lcsc_sync_error" not in names:
+            connection.exec_driver_sql("ALTER TABLE items ADD COLUMN lcsc_sync_error TEXT NOT NULL DEFAULT ''")
+        if "lcsc_sync_at" not in names:
+            connection.exec_driver_sql("ALTER TABLE items ADD COLUMN lcsc_sync_at DATETIME")
+
+
 def prepare_connection(bind, session_factory, url: str) -> None:
     ensure_sqlite_directory(url)
     Base.metadata.create_all(bind)
+    ensure_item_sync_columns(bind)
     _seed_admin(session_factory)
     from app.services.images import cache_remote_item_images
     from app.services.system_config import ensure_settings
