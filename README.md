@@ -24,6 +24,50 @@ npm run serve
 
 浏览器打开 `http://localhost:8080`。开发服务器把 `/api` 转发到 `8000`。
 
+## 打包
+
+打包可以在开发机上执行，产物拿到 Linux 上运行。打包需要 Python 3.10 及以上，以及 Node.js。Node.js 只用来构建页面。在仓库根目录执行：
+
+```powershell
+python scripts/pack.py
+```
+
+脚本会构建前端，生成 `release/电子元件库`，并打成 `release/电子元件库.zip`。压缩包里是后端、构建好的页面和 `run.py`，不含虚拟环境、数据库、物料图片和登录密钥。
+
+页面已经构建过、只想重新组装目录时，执行 `python scripts/pack.py --skip-build`。只要目录、不要 zip 时，加上 `--no-zip`。
+
+再次打包会更新程序文件，并保留 `release/电子元件库/data` 里已有的数据。解压到旧目录时，不要删掉 `data`。
+
+## 运行
+
+把 zip 拷到 Linux，解压后进入 `电子元件库`。需要 Python 3.10 及以上，不需要 Node.js。
+
+在该目录执行：
+
+```bash
+python3 run.py
+```
+
+已经激活虚拟环境或 conda 时，使用当前解释器，缺少的依赖会装进这个环境。没有激活环境时，会在程序目录创建 `.venv` 并安装依赖，需要联网。Debian/Ubuntu 如果创建失败，先执行 `sudo apt install python3-venv`。依赖下载慢时可以指定镜像：
+
+```bash
+export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+python3 run.py
+```
+
+有图形界面时会打开 `http://127.0.0.1:8000`。没有图形界面时，用这个地址自行访问。默认只允许本机访问。8000 被占用、又没有指定端口时，会自动改用 8001 到 8019。按 Ctrl+C 停止。
+
+```bash
+python3 run.py --port 9000
+python3 run.py --host 0.0.0.0
+python3 run.py --no-browser
+python3 run.py --browser
+```
+
+`--host 0.0.0.0` 让同一局域网里的其他设备也能访问。
+
+数据、图片和登录密钥都在该目录的 `data` 文件夹。备份时复制整个 `data`。换新版本时，用新的程序文件盖过旧目录，保留原来的 `data`。
+
 ## 首次登录与账号
 
 - 数据库不存在时，后端启动会自动创建，并写入管理员账号 `admin`，密码 `admin`。首次登录后必须先改密码，改完才能使用其他功能。
@@ -42,29 +86,6 @@ npm run serve
 - **BOM**：「全部加入物料库」和「一键出库」可以重复执行，每次执行都会再入库或再扣一次，所以执行前会弹确认框。AI 给出的替换建议必须先点「使用替换器件」确认，确认前不会出库，也不能调整库存。
 - **删除物料**：删除时会把它的出入库流水一起删掉，统计页里的用量也会随之减少，确认框会提示这一点。
 - **立创编号**：全部按大写保存和匹配，输入 `c25804` 会存成 `C25804`。
-
-## 环境变量
-
-| 变量 | 作用 |
-| --- | --- |
-| `DATABASE_URL` | 默认 `sqlite:///./data/app.db`，只支持 SQLite |
-| `SECRET_KEY` | 登录 Cookie 签名。不设置时自动生成随机密钥，保存在数据库同目录的 `secret_key` 文件里 |
-| `DEEPSEEK_API_KEY` | 留空时只做精确匹配和规则预筛，也可以在系统配置页面填写 |
-| `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 默认 `deepseek-chat` |
-| `COOKIE_SECURE` | HTTPS 部署时设为 `1` |
-| `STATIC_DIR` | 指向前端 `dist` 目录时，由后端同时提供页面 |
-
-立创商品查询和 DeepSeek 只在服务端调用，密钥不会进入前端包。系统配置页面只显示 API Key 的首尾几位。
-
-## 测试
-
-```powershell
-cd backend
-.venv\Scripts\python -m pytest -q
-```
-
-`tests/test_lcsc.py::test_live_c105580` 会真实访问立创商城，必须联网。如果环境变量 `NO_PROXY` 里写了带方括号的 `[::1]`，httpx 会报 `Invalid port: ':1]'`，改成 `localhost,127.0.0.1,::1` 即可。
 
 ## 样例
 
