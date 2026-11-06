@@ -141,7 +141,8 @@ def test_import_samples_match_exact_and_substitute(client):
     target = next(line for line in body["lines"] if line["mpn"] == "0603WAF1002T5E")
     assert target["lcsc_code"] == ""
     assert target["footprint"] == "R0603"
-    assert target["match_status"] == ""
+    assert target["match_status"] == "not_found"
+    assert target["matched_item_id"] is None
     assert target["reason"] == ""
     assert target["locations"] == []
     coded = client.post(
@@ -149,6 +150,7 @@ def test_import_samples_match_exact_and_substitute(client):
         json={"lcsc_code": "C105580", "mpn": "RC0603FR-075K1L", "footprint": "0603", "quantity": 500},
     )
     assert coded.status_code == 200
+    coded_id = coded.json()["id"]
     quote = client.post(
         "/api/projects/import",
         files={"file": (QUOTE_FILE.name, QUOTE_FILE.read_bytes(), "application/vnd.ms-excel")},
@@ -161,10 +163,12 @@ def test_import_samples_match_exact_and_substitute(client):
     assert matched["designators"] == "R13,R14"
     assert matched["quantity_per_board"] == 2
     assert matched["quantity_required"] == 4
-    assert matched["match_status"] == ""
+    assert matched["match_status"] == "matched"
+    assert matched["matched_item_id"] == coded_id
+    assert matched["stock"] == 500
     assert matched["reason"] == ""
     highlighted = client.get("/api/map", params={"project_id": quote_body["id"]}).json()
-    assert highlighted["highlights"] == {}
+    assert highlighted["highlights"] == {str(coded_id): ["R13", "R14"]}
     with TestClient(app) as other:
         register(other, "other@example.com")
         assert other.get("/api/projects").json() == []

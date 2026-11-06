@@ -117,13 +117,14 @@ def local_match_lines(
     *,
     ai_enabled: bool,
 ) -> list[MatchResult]:
-    if not ai_enabled:
-        return [MatchResult(status="", matched_item_id=None, suggestions=_empty("disabled")) for _line in lines]
     results: list[MatchResult] = []
     for line in lines:
         hits = _exact_hits(line, items)
         if hits:
             results.append(_exact_result(line, hits))
+            continue
+        if not ai_enabled:
+            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("disabled")))
             continue
         ranked = _rank_candidates(line, items)
         if not ranked:
@@ -195,29 +196,30 @@ def match_lines(
     base_url: str = "",
     model: str = "",
 ) -> list[MatchResult]:
-    if not ai_enabled:
-        return [MatchResult(status="", matched_item_id=None, suggestions=_empty("disabled")) for _line in lines]
     drafts: list[tuple[str, LineSnap, list[ItemSnap], list[Candidate]]] = []
     for line in lines:
         hits = _exact_hits(line, items)
         if hits:
             drafts.append(("exact", line, hits, []))
             continue
+        if not ai_enabled:
+            drafts.append(("miss", line, [], []))
+            continue
         drafts.append(("open", line, [], _rank_candidates(line, items)))
 
     ai_map: dict[int, list[dict] | None] = {}
-    if ai_enabled:
-        payload = [_ai_payload(line, ranked[:8]) for kind, line, _hits, ranked in drafts if kind == "open" and ranked]
-        if payload:
-            ai_map = suggest(payload, api_key=api_key, base_url=base_url, model=model)
+    payload = [_ai_payload(line, ranked[:8]) for kind, line, _hits, ranked in drafts if kind == "open" and ranked]
+    if payload:
+        ai_map = suggest(payload, api_key=api_key, base_url=base_url, model=model)
 
     results: list[MatchResult] = []
     for kind, line, hits, ranked in drafts:
         if kind == "exact":
             results.append(_exact_result(line, hits))
             continue
-        if not ranked:
-            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty("skipped")))
+        if kind == "miss" or not ranked:
+            source = "disabled" if kind == "miss" else "skipped"
+            results.append(MatchResult(status="not_found", matched_item_id=None, suggestions=_empty(source)))
             continue
         ai_picks = ai_map.get(line.id) if line.id in ai_map else None
         if ai_picks is None:

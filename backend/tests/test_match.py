@@ -22,23 +22,24 @@ def test_footprint_and_value_normalization():
     assert norm_value("4.7μF") == norm_value("4.7uF")
 
 
-def test_disabled_ai_skips_exact_and_rules():
+def test_disabled_ai_keeps_exact_match_and_skips_substitutes():
     exact = match_lines(
         [line(lcsc_code="C105580", mpn="OTHER")],
         [item(lcsc_code="C105580", mpn="RC0603FR-075K1L", quantity=50)],
         ai_enabled=False,
     )[0]
-    assert exact.status == ""
-    assert exact.matched_item_id is None
-    assert exact.suggestions["exact_hits"] == []
+    assert exact.status == "matched"
+    assert exact.matched_item_id == 1
+    assert exact.suggestions["source"] == "exact"
     assert exact.suggestions["candidates"] == []
     suggested = match_lines(
         [line(mpn="0603WAF1002T5E", footprint="R0603", value="10kΩ", category="")],
         [item(id=7, mpn="OTHER", footprint="0603", value="10kΩ", category="电阻")],
         ai_enabled=False,
     )[0]
-    assert suggested.status == ""
+    assert suggested.status == "not_found"
     assert suggested.matched_item_id is None
+    assert suggested.suggestions["source"] == "disabled"
     assert suggested.suggestions["candidates"] == []
 
 
